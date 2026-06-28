@@ -1,882 +1,722 @@
 import tkinter as tk
-from tkinter import messagebox, simpledialog
+from tkinter import messagebox
+import random
 from collections import deque
 import heapq
-import copy
-import threading
 
-# ============================================================
-#  BẢNG MÀU (Dark Theme - phong cách giống hình mẫu)
-# ============================================================
-BG_MAIN = "#1a1a2e"          # Nền chính (xanh đen đậm)
-BG_PANEL = "#16213e"         # Nền panel
-BG_CELL = "#0f3460"          # Ô puzzle
-BG_EMPTY = "#1a1a2e"         # Ô trống
-BG_HEADER = "#0f0f23"        # Nền header
-BORDER_COLOR = "#2a2a4a"     # Viền
+# ===== THEME =====
+BG = "#1a1a2e"
+PANEL = "#16213e"
+CARD = "#0f3460"
+TEXT = "#e6e6e6"
+SUB = "#8d99ae"
+ACCENT = "#00d4ff"
+BTN = "#3a86ff"
+BTN_H = "#2a75e6"
+BTN_SEL = "#e63946"
+CELL = "#3d5a80"
+CELL_E = "#0e0e1a"
+GREEN = "#06d6a0"
+RED = "#ef476f"
+YELLOW = "#ffd166"
 
-COLOR_TAB_ACTIVE = "#e94560"      # Tab đang chọn (đỏ hồng)
-COLOR_TAB_INACTIVE = "#16213e"    # Tab chưa chọn
-COLOR_TAB_HOVER = "#1a3a5c"      # Tab hover
+GOAL = [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 0]]
+DEFAULT = [[1, 2, 3, 4], [5, 6, 0, 8], [9, 10, 7, 11], [13, 14, 15, 12]]
 
-COLOR_HIGHLIGHT = "#00e676"       # Viền highlight node con được chọn (xanh lá)
-COLOR_HIGHLIGHT_BG = "#0a2e1a"    # Nền node con được highlight
+# ===== STATE CLASS =====
+class State:
+    def __init__(self, board):
+        self.board = [r[:] for r in board]
 
-COLOR_BTN_GREEN = "#00c853"       # Nút Giải
-COLOR_BTN_BLUE = "#2979ff"        # Nút Bước
-COLOR_BTN_TEAL = "#00bcd4"        # Nút Nhập tay
-COLOR_BTN_RED = "#e94560"         # Nút Quay lại
-COLOR_BTN_ORANGE = "#ff9800"      # Nút Auto Play
-COLOR_BTN_HOVER_GREEN = "#00a844"
-COLOR_BTN_HOVER_BLUE = "#2162cc"
-COLOR_BTN_HOVER_TEAL = "#0097a7"
-COLOR_BTN_HOVER_RED = "#c73550"
+    def blank(self):
+        for i in range(4):
+            for j in range(4):
+                if self.board[i][j] == 0:
+                    return i, j
 
-TEXT_WHITE = "#ffffff"
-TEXT_CYAN = "#00e5ff"
-TEXT_PINK = "#ff4081"
-TEXT_GRAY = "#8899aa"
-TEXT_YELLOW = "#ffd740"
+    def get_neighbors(self):
+        res = []
+        bi, bj = self.blank()
+        for di, dj, nm in [(-1, 0, "↑"), (1, 0, "↓"), (0, -1, "←"), (0, 1, "→")]:
+            ni, nj = bi + di, bj + dj
+            if 0 <= ni < 4 and 0 <= nj < 4:
+                b = [r[:] for r in self.board]
+                tile_val = self.board[ni][nj]
+                b[bi][bj], b[ni][nj] = b[ni][nj], b[bi][bj]
+                res.append((State(b), nm, tile_val))
+        return res
 
-FONT_TITLE = ("Segoe UI", 14, "bold")
-FONT_SECTION = ("Segoe UI", 11, "bold")
-FONT_CELL = ("Segoe UI", 13, "bold")
-FONT_CELL_SM = ("Segoe UI", 8, "bold")
-FONT_CELL_XS = ("Segoe UI", 6)
-FONT_BTN = ("Segoe UI", 10, "bold")
-FONT_INFO = ("Segoe UI", 9)
-FONT_EXPLAIN = ("Segoe UI", 9)
+    def is_goal(self):
+        return self.board == GOAL
 
-# ============================================================
-#  TRẠNG THÁI GOAL & MẶC ĐỊNH
-# ============================================================
-GOAL_STATE = [
-    [1,  2,  3,  4],
-    [5,  6,  7,  8],
-    [9,  10, 11, 12],
-    [13, 14, 15, 0]
-]
+    def h(self):
+        c = 0
+        for i in range(4):
+            for j in range(4):
+                if self.board[i][j] != 0 and self.board[i][j] != GOAL[i][j]:
+                    c += 1
+        return c
 
-DEFAULT_STATE = [
-    [1,  2,  3,  4],
-    [5,  6,  0,  8],
-    [9,  10, 7,  11],
-    [13, 14, 15, 12]
-]
+# ===== NODE CLASS =====
+class Node:
+    def __init__(self, state, parent=None, action=None, g=0, depth=0):
+        self.state = state  # board (list of lists)
+        self.parent = parent
+        self.action = action
+        self.g = g
+        self.depth = depth
 
-# ============================================================
-#  TIỆN ÍCH PUZZLE
-# ============================================================
-def find_blank(state):
-    """Tìm vị trí ô trống (0)."""
+    def get_path(self):
+        path = []
+        curr = self
+        while curr:
+            path.append(curr.state)
+            curr = curr.parent
+        return path[::-1]
+
+    def __lt__(self, other):
+        return self.g < other.g
+
+# ===== DRAWING HELPER =====
+def draw_board(canvas, board, cs, x0, y0, border_color=None):
+    gap = 2
+    total = 4 * cs + 3 * gap
+    canvas.create_rectangle(x0 - 3, y0 - 3, x0 + total + 3, y0 + total + 3, fill=PANEL, outline=border_color or PANEL, width=3 if border_color else 0)
     for i in range(4):
         for j in range(4):
-            if state[i][j] == 0:
-                return i, j
-    return -1, -1
+            x = x0 + j * (cs + gap)
+            y = y0 + i * (cs + gap)
+            v = board[i][j]
+            if v == 0:
+                canvas.create_rectangle(x, y, x + cs, y + cs, fill=CELL_E, outline=CELL_E)
+            else:
+                ok = (v == GOAL[i][j])
+                c = "#1e4620" if ok else "#78281f"
+                canvas.create_rectangle(x, y, x + cs, y + cs, fill=c, outline="#4a6d8c", width=1)
+                fs = max(cs // 3, 8)
+                canvas.create_text(x + cs // 2, y + cs // 2, text=str(v), fill=TEXT, font=("Segoe UI", fs, "bold"))
+    return total
 
-def get_neighbors(state):
-    """Trả về danh sách (direction_label, new_state) cho các bước di chuyển hợp lệ."""
-    bi, bj = find_blank(state)
-    moves = []
-    # Mũi tên chỉ hướng di chuyển của ô (ngược với hướng di chuyển ô trống)
-    # (-1,0) = blank đi lên → ô ở trên đi XUỐNG (↓)
-    # (1,0) = blank đi xuống → ô ở dưới đi LÊN (↑)
-    # (0,-1) = blank đi trái → ô ở trái đi PHẢI (→)
-    # (0,1) = blank đi phải → ô ở phải đi TRÁI (←)
-    directions = [(-1, 0, "↓"), (1, 0, "↑"), (0, -1, "→"), (0, 1, "←")]
-
-    for di, dj, arrow in directions:
-        ni, nj = bi + di, bj + dj
-        if 0 <= ni < 4 and 0 <= nj < 4:
-            new_state = copy.deepcopy(state)
-            new_state[bi][bj], new_state[ni][nj] = new_state[ni][nj], new_state[bi][bj]
-            moved_val = state[ni][nj]
-            label = f"Trượt ô {moved_val} {arrow}"
-            moves.append((label, new_state))
-    return moves
-
-def state_to_tuple(state):
-    """Chuyển state thành tuple để hash."""
-    return tuple(state[i][j] for i in range(4) for j in range(4))
-
-def is_solvable(state):
-    """Kiểm tra puzzle có giải được không (dựa trên số inversions)."""
-    flat = [state[i][j] for i in range(4) for j in range(4)]
-    inversions = 0
-    for i in range(16):
-        for j in range(i + 1, 16):
-            if flat[i] != 0 and flat[j] != 0 and flat[i] > flat[j]:
-                inversions += 1
-    blank_row = find_blank(state)[0]
-    blank_from_bottom = 4 - blank_row
-    if blank_from_bottom % 2 == 0:
-        return inversions % 2 == 1
-    else:
-        return inversions % 2 == 0
-
-# ============================================================
-#  TIỆN ÍCH ĐƯỜNG ĐI LỜI GIẢI
-# ============================================================
-def tuple_to_state(t):
-    """Chuyển tuple trạng thái về dạng list 2D."""
-    return [list(t[i*4:(i+1)*4]) for i in range(4)]
-
-def reconstruct_path(parent, start_tuple, goal_tuple):
-    """Truy vết đường đi từ trạng thái đầu đến đích bằng parent pointers."""
-    path_tuples = [goal_tuple]
-    current = goal_tuple
-    while current != start_tuple:
-        parent_tuple, _ = parent[current]
-        path_tuples.append(parent_tuple)
-        current = parent_tuple
-    path_tuples.reverse()
-    return [tuple_to_state(t) for t in path_tuples]
-
-def create_path_steps(path, algo_name, nodes_explored, visited_count):
-    """Tạo danh sách SolveStep từ đường đi lời giải (mỗi bước = 1 di chuyển)."""
+# ===== ALGORITHMS =====
+def run_bfs(start_board):
+    start_state = State(start_board)
+    start_node = Node(start_state.board, g=0, depth=0)
+    
+    queue = deque([start_node])
+    visited = set()
     steps = []
-    total_moves = len(path) - 1
-
-    for i, state in enumerate(path):
-        children = get_neighbors(state)
-        chosen_idx = -1
-
-        # Tìm node con ứng với bước tiếp theo trong đường đi
-        if i < total_moves:
-            next_tuple = state_to_tuple(path[i + 1])
-            for j, (_, child) in enumerate(children):
-                if state_to_tuple(child) == next_tuple:
-                    chosen_idx = j
-                    break
-
-        # Tìm nhãn bước di chuyển đã thực hiện
-        move_label = ""
-        if i > 0:
-            prev_neighbors = get_neighbors(path[i - 1])
-            current_tuple = state_to_tuple(state)
-            for label, child in prev_neighbors:
-                if state_to_tuple(child) == current_tuple:
-                    move_label = label
-                    break
-
-        if i == 0:
-            expl = (f"{algo_name}: Trạng thái ban đầu.\n"
-                    f"Tìm đường đi đến trạng thái đích.\n"
-                    f"Số node đã duyệt: {nodes_explored}\n"
-                    f"Tổng bước đi: {total_moves}")
-        elif i == total_moves:
-            expl = (f"ĐÃ TÌM THẤY ĐÍCH!\n"
-                    f"Bước cuối: {move_label}\n"
-                    f"Tổng bước đi: {total_moves}\n"
-                    f"Số node đã duyệt: {nodes_explored}")
-        else:
-            expl = (f"{algo_name}: Bước {i}/{total_moves}.\n"
-                    f"Thực hiện: {move_label}\n"
-                    f"Số node đã duyệt: {nodes_explored}\n"
-                    f"Còn {total_moves - i} bước nữa.")
-
-        steps.append(SolveStep(state, children, chosen_idx,
-                               0, visited_count, expl, depth=i, cost=i))
-
+    
+    limit = 400
+    expanded = 0
+    
+    while queue and expanded < limit:
+        curr_node = queue.popleft()
+        curr_board_tuple = tuple(tuple(r) for r in curr_node.state)
+        
+        if curr_board_tuple in visited:
+            continue
+        visited.add(curr_board_tuple)
+        expanded += 1
+        
+        curr_state = State(curr_node.state)
+        
+        raw_neighbors = curr_state.get_neighbors()
+        neighbors_data = []
+        for nxt, act, tile_val in raw_neighbors:
+            nxt_tuple = tuple(tuple(r) for r in nxt.board)
+            if nxt_tuple in visited:
+                status = "visited"
+            else:
+                status = "added"
+            neighbors_data.append((nxt.board, act, status, tile_val))
+            
+        steps.append({
+            'board': [r[:] for r in curr_node.state],
+            'status': 'exploring',
+            'depth': curr_node.depth,
+            'g': curr_node.g,
+            'path': curr_node.get_path(),
+            'neighbors': neighbors_data,
+            'chosen_idx': -1,
+            'text': f"Xét trạng thái thứ {expanded} lấy ra từ hàng đợi (BFS).\nĐộ sâu hiện tại: {curr_node.depth}.\nSố ô sai vị trí (xung đột): {curr_state.h()}."
+        })
+        
+        if curr_state.is_goal():
+            steps[-1]['status'] = 'solved'
+            steps[-1]['text'] = "🎉 Đã tìm thấy trạng thái Đích!"
+            return steps
+            
+        for nxt_b, act, status, _ in neighbors_data:
+            if status == "visited":
+                continue
+            child = Node(nxt_b, curr_node, act, curr_node.g + 1, curr_node.depth + 1)
+            queue.append(child)
+            
     return steps
 
-# ============================================================
-#  CẤU TRÚC BƯỚC GIẢI (cho visualization)
-# ============================================================
-class SolveStep:
-    """Mỗi bước trong quá trình giải."""
-    def __init__(self, current_state, children, chosen_idx, frontier_size, visited_count, explanation, depth=0, cost=0):
-        self.current_state = current_state      # Trạng thái đang xét
-        self.children = children                # Danh sách (label, state)
-        self.chosen_idx = chosen_idx            # Index của node con được chọn (-1 nếu không chọn)
-        self.frontier_size = frontier_size      # Kích thước frontier
-        self.visited_count = visited_count      # Số node đã thăm
-        self.explanation = explanation           # Giải thích bước này
-        self.depth = depth                      # Độ sâu
-        self.cost = cost                        # Chi phí (cho UCS)
+def run_dfs(start_board, depth_limit=8):
+    steps = []
+    visited = {}  # board_tuple -> min_depth_visited
+    limit = 400
+    expanded = 0
+    
+    def dfs(curr_node):
+        nonlocal expanded
+        if expanded >= limit:
+            return False
+            
+        curr_board_tuple = tuple(tuple(r) for r in curr_node.state)
+        
+        if curr_board_tuple in visited and visited[curr_board_tuple] <= curr_node.depth:
+            return False
+        visited[curr_board_tuple] = curr_node.depth
+        expanded += 1
+        
+        curr_state = State(curr_node.state)
+        raw_neighbors = curr_state.get_neighbors()
+        
+        neighbors_data = []
+        for nxt, act, tile_val in raw_neighbors:
+            nxt_tuple = tuple(tuple(r) for r in nxt.board)
+            if nxt_tuple in visited and visited[nxt_tuple] <= curr_node.depth + 1:
+                status = "visited"
+            else:
+                status = "added"
+            neighbors_data.append((nxt.board, act, status, tile_val))
+            
+        steps.append({
+            'board': [r[:] for r in curr_node.state],
+            'status': 'exploring',
+            'depth': curr_node.depth,
+            'g': curr_node.g,
+            'path': curr_node.get_path(),
+            'neighbors': neighbors_data,
+            'chosen_idx': -1,
+            'text': f"Xét trạng thái thứ {expanded} lấy ra từ đỉnh ngăn xếp (DFS).\nĐộ sâu hiện tại: {curr_node.depth}.\nSố ô sai vị trí (xung đột): {curr_state.h()}."
+        })
+        
+        if curr_state.is_goal():
+            steps[-1]['status'] = 'solved'
+            steps[-1]['text'] = "🎉 Đã tìm thấy trạng thái Đích!"
+            return True
+            
+        if curr_node.depth < depth_limit:
+            for idx, (nxt_b, act, status, tile_val) in enumerate(neighbors_data):
+                if status == "visited":
+                    continue
+                    
+                child = Node(nxt_b, curr_node, act, curr_node.g + 1, curr_node.depth + 1)
+                steps[-1]['chosen_idx'] = idx
+                
+                if dfs(child):
+                    return True
+                    
+                # Ghi nhận bước quay lui để tránh nhảy cóc trên giao diện
+                steps.append({
+                    'board': [r[:] for r in curr_node.state],
+                    'status': 'backtracking',
+                    'depth': curr_node.depth,
+                    'g': curr_node.g,
+                    'path': curr_node.get_path(),
+                    'neighbors': neighbors_data,
+                    'chosen_idx': -1,
+                    'text': f"Quay lui về độ sâu {curr_node.depth} từ hướng đi {act}."
+                })
+                
+        return False
 
-# ============================================================
-#  THUẬT TOÁN BFS - Trả về đường đi lời giải
-# ============================================================
-def solve_bfs(initial_state, max_nodes=50000):
-    """BFS: Tìm kiếm theo chiều rộng - trả về đường đi từng bước."""
-    goal_tuple = state_to_tuple(GOAL_STATE)
-    init_tuple = state_to_tuple(initial_state)
+    start_node = Node(start_board, g=0, depth=0)
+    dfs(start_node)
+    return steps
 
-    if init_tuple == goal_tuple:
-        return [SolveStep(initial_state, [], -1, 0, 1, "Trạng thái ban đầu đã là trạng thái đích!")]
-
-    queue = deque()
+def run_ucs(start_board):
+    start_state = State(start_board)
+    start_node = Node(start_state.board, g=0, depth=0)
+    
+    count = 0
+    queue = [(0, count, start_node)]
     visited = set()
-    parent = {}  # child_tuple -> (parent_tuple, move_label)
-
-    visited.add(init_tuple)
-    queue.append((initial_state, 0))
-    nodes_explored = 0
-
-    while queue and len(visited) < max_nodes:
-        current, depth = queue.popleft()
-        nodes_explored += 1
-        ct = state_to_tuple(current)
-
-        for label, child_state in get_neighbors(current):
-            child_tuple = state_to_tuple(child_state)
-            if child_tuple not in visited:
-                visited.add(child_tuple)
-                parent[child_tuple] = (ct, label)
-
-                if child_tuple == goal_tuple:
-                    # Tìm thấy đích -> truy vết đường đi
-                    path = reconstruct_path(parent, init_tuple, goal_tuple)
-                    return create_path_steps(path, "BFS", nodes_explored, len(visited))
-
-                queue.append((child_state, depth + 1))
-
-    return [SolveStep(initial_state, [], -1, 0, len(visited),
-                      f"Không tìm thấy lời giải trong giới hạn {max_nodes} node.\n"
-                      f"Đã duyệt: {len(visited)} node.")]
-
-# ============================================================
-#  THUẬT TOÁN DFS - Trả về đường đi lời giải (Iterative Deepening)
-# ============================================================
-def solve_dfs(initial_state, max_nodes=200000):
-    """DFS: Tìm kiếm theo chiều sâu (Iterative Deepening) - trả về đường đi từng bước."""
-    goal_tuple = state_to_tuple(GOAL_STATE)
-    init_tuple = state_to_tuple(initial_state)
-
-    if init_tuple == goal_tuple:
-        return [SolveStep(initial_state, [], -1, 0, 1, "Trạng thái ban đầu đã là trạng thái đích!")]
-
-    total_explored = 0
-
-    # Iterative Deepening: tăng dần giới hạn depth
-    for max_depth in range(1, 81):
-        stack = [(initial_state, 0)]
-        visited = {init_tuple}
-        parent = {}
-        nodes_explored = 0
-
-        while stack and total_explored + nodes_explored < max_nodes:
-            current, depth = stack.pop()
-            nodes_explored += 1
-            ct = state_to_tuple(current)
-
-            if depth >= max_depth:
-                continue
-
-            for label, child_state in get_neighbors(current):
-                child_tuple = state_to_tuple(child_state)
-                if child_tuple not in visited:
-                    visited.add(child_tuple)
-                    parent[child_tuple] = (ct, label)
-
-                    if child_tuple == goal_tuple:
-                        # Tìm thấy đích -> truy vết đường đi
-                        total_explored += nodes_explored
-                        path = reconstruct_path(parent, init_tuple, goal_tuple)
-                        return create_path_steps(path, "DFS (IDDFS)", total_explored, len(visited))
-
-                    stack.append((child_state, depth + 1))
-
-        total_explored += nodes_explored
-
-        if total_explored >= max_nodes:
-            break
-
-    return [SolveStep(initial_state, [], -1, 0, total_explored,
-                      f"Không tìm thấy lời giải trong giới hạn {max_nodes} node.\n"
-                      f"Đã duyệt: {total_explored} node.")]
-
-
-# ============================================================
-#  THUẬT TOÁN UCS - Trả về đường đi lời giải
-# ============================================================
-def solve_ucs(initial_state, max_nodes=50000):
-    """UCS: Tìm kiếm chi phí đều (mỗi bước cost=1) - trả về đường đi từng bước."""
-    goal_tuple = state_to_tuple(GOAL_STATE)
-    init_tuple = state_to_tuple(initial_state)
-
-    if init_tuple == goal_tuple:
-        return [SolveStep(initial_state, [], -1, 0, 1, "Trạng thái ban đầu đã là trạng thái đích!", cost=0)]
-
-    counter = 0
-    heap = [(0, counter, initial_state)]
-    counter += 1
-    visited = set()
-    parent = {}  # child_tuple -> (parent_tuple, move_label)
-    cost_map = {init_tuple: 0}
-    nodes_explored = 0
-
-    while heap and len(visited) < max_nodes:
-        cost, _, current = heapq.heappop(heap)
-        ct = state_to_tuple(current)
-
-        if ct in visited:
+    steps = []
+    
+    limit = 400
+    expanded = 0
+    
+    while queue and expanded < limit:
+        g_val, _, curr_node = heapq.heappop(queue)
+        curr_board_tuple = tuple(tuple(r) for r in curr_node.state)
+        
+        if curr_board_tuple in visited:
             continue
-        visited.add(ct)
-        nodes_explored += 1
+        visited.add(curr_board_tuple)
+        expanded += 1
+        
+        curr_state = State(curr_node.state)
+        
+        raw_neighbors = curr_state.get_neighbors()
+        neighbors_data = []
+        for nxt, act, tile_val in raw_neighbors:
+            nxt_tuple = tuple(tuple(r) for r in nxt.board)
+            if nxt_tuple in visited:
+                status = "visited"
+            else:
+                status = "added"
+            neighbors_data.append((nxt.board, act, status, tile_val))
+            
+        steps.append({
+            'board': [r[:] for r in curr_node.state],
+            'status': 'exploring',
+            'depth': curr_node.depth,
+            'g': curr_node.g,
+            'path': curr_node.get_path(),
+            'neighbors': neighbors_data,
+            'chosen_idx': -1,
+            'text': f"Xét trạng thái thứ {expanded} có chi phí g(n) = {curr_node.g} nhỏ nhất (UCS).\nĐộ sâu hiện tại: {curr_node.depth}.\nSố ô sai vị trí (xung đột): {curr_state.h()}."
+        })
+        
+        if curr_state.is_goal():
+            steps[-1]['status'] = 'solved'
+            steps[-1]['text'] = "🎉 Đã tìm thấy trạng thái Đích!"
+            return steps
+            
+        for nxt_b, act, status, _ in neighbors_data:
+            if status == "visited":
+                continue
+            # Chi phí: Lên/Xuống = 1, Trái/Phải = 2 để phân biệt rõ với BFS
+            move_cost = 2 if act in ["←", "→"] else 1
+            child = Node(nxt_b, curr_node, act, curr_node.g + move_cost, curr_node.depth + 1)
+            count += 1
+            heapq.heappush(queue, (child.g, count, child))
+            
+    return steps
 
-        if ct == goal_tuple:
-            # Tìm thấy đích -> truy vết đường đi
-            path = reconstruct_path(parent, init_tuple, goal_tuple)
-            return create_path_steps(path, "UCS", nodes_explored, len(visited))
+ALGOS = {
+    "Breadth-First Search (BFS)": run_bfs,
+    "Depth-First Search (DFS)": run_dfs,
+    "Uniform Cost Search (UCS)": run_ucs
+}
 
-        for label, child_state in get_neighbors(current):
-            child_tuple = state_to_tuple(child_state)
-            new_cost = cost + 1
-
-            if child_tuple not in visited:
-                if child_tuple not in cost_map or new_cost < cost_map[child_tuple]:
-                    cost_map[child_tuple] = new_cost
-                    parent[child_tuple] = (ct, label)
-                    heapq.heappush(heap, (new_cost, counter, child_state))
-                    counter += 1
-
-    return [SolveStep(initial_state, [], -1, 0, len(visited),
-                      f"Không tìm thấy lời giải trong giới hạn {max_nodes} node.\n"
-                      f"Đã duyệt: {len(visited)} node.",
-                      cost=0)]
-
-
-# ============================================================
-#  VẼ PUZZLE TRÊN CANVAS
-# ============================================================
-def draw_puzzle(canvas, state, x, y, cell_size, highlight=False, highlight_color=None):
-    """Vẽ bảng puzzle 4x4 lên canvas tại vị trí (x, y)."""
-    padding = 2
-    total = cell_size * 4 + padding * 5
-
-    if highlight and highlight_color:
-        canvas.create_rectangle(x - 3, y - 3, x + total + 3, y + total + 3,
-                                outline=highlight_color, width=3)
-
+def get_move_relation(board1, board2):
+    b1_i, b1_j = -1, -1
+    b2_i, b2_j = -1, -1
     for i in range(4):
         for j in range(4):
-            cx = x + padding + j * (cell_size + padding)
-            cy = y + padding + i * (cell_size + padding)
-            val = state[i][j]
+            if board1[i][j] == 0:
+                b1_i, b1_j = i, j
+            if board2[i][j] == 0:
+                b2_i, b2_j = i, j
+    di, dj = b2_i - b1_i, b2_j - b1_j
+    if di == -1 and dj == 0: return "↑"
+    if di == 1 and dj == 0: return "↓"
+    if di == 0 and dj == -1: return "←"
+    if di == 0 and dj == 1: return "→"
+    return ""
 
-            if val == 0:
-                fill = BG_EMPTY
-                canvas.create_rectangle(cx, cy, cx + cell_size, cy + cell_size,
-                                        fill=fill, outline=fill)
+# ===== MAIN UI =====
+class UninformedUI:
+    def __init__(self, parent, algo_name=None):
+        self.parent = parent
+        parent.withdraw()
+        self.win = tk.Toplevel(parent)
+        self.win.title("Nhóm 1: Tìm kiếm mù - 15 Puzzle")
+        self.win.geometry("1350x780")
+        self.win.configure(bg=BG)
+        self.win.minsize(1200, 700)
+        self.win.protocol("WM_DELETE_WINDOW", self.on_close)
+        
+        self.board = [r[:] for r in DEFAULT]
+        self.algo = algo_name
+        self.steps = []
+        self.step_idx = -1
+        self.auto_playing = False
+        
+        self.algo_btns = {}
+        self._build_top()
+        self._build_middle()
+        self._build_bottom()
+        
+        if algo_name:
+            self.select_algo(algo_name)
+        self.draw_initial()
+
+    def on_close(self):
+        self.win.destroy()
+        self.parent.deiconify()
+
+    def _build_top(self):
+        f = tk.Frame(self.win, bg=PANEL, pady=8)
+        f.pack(fill=tk.X, padx=0)
+        tk.Label(f, text="NHÓM 1: TÌM KIẾM MÙ (UNINFORMED SEARCH)", font=("Segoe UI", 14, "bold"), bg=PANEL, fg=ACCENT).pack(side=tk.LEFT, padx=20)
+        
+        bb = tk.Button(f, text="◀ Quay lại", font=("Segoe UI", 10, "bold"), bg=RED, fg=TEXT, relief="flat", padx=12, pady=4, cursor="hand2", command=self.on_close)
+        bb.pack(side=tk.RIGHT, padx=15)
+        
+        for name in reversed(list(ALGOS.keys())):
+            b = tk.Button(f, text=name, font=("Segoe UI", 10), bg="#444455", fg=TEXT, relief="flat", padx=12, pady=4, cursor="hand2",
+                        command=lambda n=name: self.select_algo(n))
+            b.pack(side=tk.RIGHT, padx=4)
+            self.algo_btns[name] = b
+
+    def select_algo(self, name):
+        self.algo = name
+        for n, b in self.algo_btns.items():
+            if n == name:
+                b.config(bg=BTN_SEL)
             else:
-                fill = BG_CELL
-                canvas.create_rectangle(cx, cy, cx + cell_size, cy + cell_size,
-                                        fill=fill, outline="#1a3a6a", width=1)
-                # Chọn font theo cell_size
-                if cell_size >= 35:
-                    font = FONT_CELL
-                elif cell_size >= 22:
-                    font = FONT_CELL_SM
-                else:
-                    font = FONT_CELL_XS
+                b.config(bg="#444455")
+        self.steps = []
+        self.step_idx = -1
+        self.draw_initial()
 
-                canvas.create_text(cx + cell_size // 2, cy + cell_size // 2,
-                                   text=str(val), fill=TEXT_WHITE, font=font)
+    def _build_middle(self):
+        mf = tk.Frame(self.win, bg=BG)
+        mf.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        # --- CỘT TRÁI: Node đang xét ---
+        lf = tk.Frame(mf, bg=CARD, highlightbackground="#2a3a5c", highlightthickness=1)
+        lf.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 5))
+        
+        tk.Label(lf, text="NODE ĐANG XÉT", font=("Segoe UI", 11, "bold"), bg=CARD, fg=ACCENT).pack(pady=(10, 5))
+        self.cv_cur = tk.Canvas(lf, width=260, height=280, bg=CARD, highlightthickness=0)
+        self.cv_cur.pack(padx=15, pady=5)
+        
+        self.lbl_h = tk.Label(lf, text="Xung đột: ?", font=("Segoe UI", 13, "bold"), bg=CARD, fg=YELLOW)
+        self.lbl_h.pack(pady=(0, 5))
+        
+        # Bảng điều khiển Xáo trộn
+        sf = tk.Frame(lf, bg=CARD)
+        sf.pack(pady=5)
+        tk.Label(sf, text="Bước Shuffle:", bg=CARD, fg=TEXT, font=("Segoe UI", 9)).grid(row=0, column=0, padx=5)
+        self.sp_shuffle = tk.Spinbox(sf, from_=1, to=8, width=4, font=("Segoe UI", 9, "bold"))
+        self.sp_shuffle.delete(0, "end")
+        self.sp_shuffle.insert(0, "3")
+        self.sp_shuffle.grid(row=0, column=1, padx=5)
+        
+        bf_shuffle = tk.Frame(lf, bg=CARD)
+        bf_shuffle.pack(pady=5)
+        tk.Button(bf_shuffle, text="🎲 Shuffle", font=("Segoe UI", 9, "bold"), bg="#6930c3", fg=TEXT, relief="flat", padx=10, pady=4, cursor="hand2", command=self.do_shuffle).pack(side=tk.LEFT, padx=5)
+        tk.Button(bf_shuffle, text="🧹 Reset", font=("Segoe UI", 9, "bold"), bg="#444455", fg=TEXT, relief="flat", padx=10, pady=4, cursor="hand2", command=self.do_reset).pack(side=tk.LEFT, padx=5)
 
-# ============================================================
-#  DIALOG NHẬP TAY
-# ============================================================
-class PuzzleInputDialog(tk.Toplevel):
-    """Dialog để nhập puzzle thủ công."""
+        # Chú thích màu sắc
+        tk.Label(lf, text="CHÚ THÍCH", font=("Segoe UI", 11, "bold"), bg=CARD, fg=ACCENT).pack(pady=(10, 5))
+        legend = [
+            ("Không xung đột (đúng vị trí)", "#1e4620"),
+            ("Đang xung đột (sai vị trí)", "#78281f"),
+            ("Đã duyệt (Màu tối)", SUB),
+            ("Được thêm vào biên (Biên vàng)", YELLOW)
+        ]
+        for name, col in legend:
+            f_lg = tk.Frame(lf, bg=CARD)
+            f_lg.pack(fill=tk.X, padx=25, pady=2)
+            if col == YELLOW:
+                tk.Frame(f_lg, width=15, height=15, bg="#3f3f2d", highlightbackground=YELLOW, highlightthickness=1).pack(side=tk.LEFT, padx=(0, 10))
+            else:
+                tk.Frame(f_lg, width=15, height=15, bg=col, highlightbackground=TEXT, highlightthickness=0.5).pack(side=tk.LEFT, padx=(0, 10))
+            tk.Label(f_lg, text=name, bg=CARD, fg=TEXT, font=("Segoe UI", 9)).pack(side=tk.LEFT)
 
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.title("Nhập trạng thái Puzzle")
-        self.configure(bg=BG_MAIN)
-        self.resizable(False, False)
-        self.result = None
+        # --- CỘT GIỮA: Các trạng thái con (Next States) ---
+        cf = tk.Frame(mf, bg=CARD, highlightbackground="#2a3a5c", highlightthickness=1)
+        cf.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
+        
+        tk.Label(cf, text="CÁC BƯỚC THỬ TIẾP THEO (MIỀN GIÁ TRỊ)", font=("Segoe UI", 11, "bold"), bg=CARD, fg=ACCENT).pack(pady=(10, 5))
+        self.children_frame = tk.Frame(cf, bg=CARD)
+        self.children_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
-        # Center dialog
-        self.geometry("400x480")
-        self.transient(parent)
-        self.grab_set()
+        # --- CỘT PHẢI: Đường đi đã duyệt + Giải thích ---
+        rf = tk.Frame(mf, bg=BG)
+        rf.pack(side=tk.LEFT, fill=tk.BOTH, padx=(5, 0))
+        rf.config(width=350)
+        rf.pack_propagate(False)
+        
+        # Đường đi hiện tại (Path)
+        vf = tk.Frame(rf, bg=CARD, highlightbackground="#2a3a5c", highlightthickness=1)
+        vf.pack(fill=tk.BOTH, expand=True, pady=(0, 5))
+        tk.Label(vf, text="ĐƯỜNG ĐI HIỆN TẠI (PATH)", font=("Segoe UI", 10, "bold"), bg=CARD, fg=ACCENT).pack(pady=(8, 2))
+        
+        vc = tk.Canvas(vf, bg=CARD, highlightthickness=0)
+        vc.pack(fill=tk.BOTH, expand=True, side=tk.LEFT)
+        vs = tk.Scrollbar(vf, orient=tk.VERTICAL, command=vc.yview)
+        vs.pack(side=tk.RIGHT, fill=tk.Y)
+        vc.configure(yscrollcommand=vs.set)
+        
+        self.vis_inner = tk.Frame(vc, bg=CARD)
+        vc.create_window((0, 0), window=self.vis_inner, anchor="nw")
+        self.vis_inner.bind("<Configure>", lambda e: vc.configure(scrollregion=vc.bbox("all")))
+        self.vis_canvas = vc
+        
+        # Giải thích
+        ef = tk.Frame(rf, bg=CARD, highlightbackground="#2a3a5c", highlightthickness=1, height=200)
+        ef.pack(fill=tk.X, pady=(5, 0))
+        ef.pack_propagate(False)
+        tk.Label(ef, text="GIẢI THÍCH CHI TIẾT", font=("Segoe UI", 10, "bold"), bg=CARD, fg=ACCENT).pack(pady=(8, 2))
+        
+        self.txt_exp = tk.Text(ef, bg=CARD, fg=TEXT, font=("Segoe UI", 10), wrap=tk.WORD, relief="flat", padx=10, pady=5, insertbackground=TEXT, state=tk.DISABLED)
+        self.txt_exp.pack(fill=tk.BOTH, expand=True, padx=5, pady=(0, 5))
 
-        tk.Label(self, text="NHẬP TRẠNG THÁI 15-PUZZLE", font=FONT_TITLE,
-                 bg=BG_MAIN, fg=TEXT_CYAN).pack(pady=(15, 5))
-        tk.Label(self, text="Nhập số từ 0-15 (0 = ô trống)", font=FONT_INFO,
-                 bg=BG_MAIN, fg=TEXT_GRAY).pack(pady=(0, 10))
+    def _build_bottom(self):
+        f = tk.Frame(self.win, bg=PANEL, pady=10)
+        f.pack(fill=tk.X)
+        
+        btns = [
+            ("▶ Giải", self.do_solve, GREEN),
+            ("◀◀ Bước trước", self.do_prev, BTN),
+            ("Bước sau ▶▶", self.do_next, BTN),
+        ]
+        for txt, cmd, clr in btns:
+            tk.Button(f, text=txt, font=("Segoe UI", 11, "bold"), bg=clr, fg=TEXT if clr!=GREEN else "#000", relief="flat", padx=18, pady=8, cursor="hand2", command=cmd).pack(side=tk.LEFT, padx=10)
+            
+        self.btn_auto = tk.Button(f, text="Tự chạy ⏯", font=("Segoe UI", 11, "bold"), bg="#5a189a", fg=TEXT, relief="flat", padx=18, pady=8, cursor="hand2", command=self.toggle_auto_play)
+        self.btn_auto.pack(side=tk.LEFT, padx=10)
+        
+        self.lbl_step = tk.Label(f, text="", font=("Segoe UI", 12, "bold"), bg=PANEL, fg=YELLOW)
+        self.lbl_step.pack(side=tk.RIGHT, padx=20)
 
-        grid_frame = tk.Frame(self, bg=BG_PANEL, padx=15, pady=15)
-        grid_frame.pack(padx=20, pady=5)
+    def draw_initial(self):
+        self.cv_cur.delete("all")
+        draw_board(self.cv_cur, self.board, 58, 10, 10, border_color=ACCENT)
+        self.lbl_h.config(text=f"Xung đột: {State(self.board).h()}")
+        
+        for w in self.children_frame.winfo_children(): w.destroy()
+        tk.Label(self.children_frame, text="Nhấn '▶ Giải' để bắt đầu\nhoặc '🎲 Shuffle' để xáo trộn bàn cờ", font=("Segoe UI", 11), bg=CARD, fg=SUB, justify="center").pack(expand=True)
+        
+        self.set_exp("Chọn thuật toán ở thanh trên và nhấn Giải.")
+        self.lbl_step.config(text="")
+        for w in self.vis_inner.winfo_children(): w.destroy()
 
-        self.entries = []
-        for i in range(4):
-            row_entries = []
-            for j in range(4):
-                e = tk.Entry(grid_frame, width=4, font=FONT_CELL, justify="center",
-                             bg=BG_CELL, fg=TEXT_WHITE, insertbackground=TEXT_WHITE,
-                             relief="flat", bd=2)
-                e.grid(row=i, column=j, padx=4, pady=4, ipady=6)
-                row_entries.append(e)
-            self.entries.append(row_entries)
+    def show_step(self, idx):
+        if idx < 0 or idx >= len(self.steps):
+            return
+        self.step_idx = idx
+        st = self.steps[idx]
+        self.lbl_step.config(text=f"Bước {idx+1}/{len(self.steps)}")
+        
+        # 1. Vẽ trạng thái hiện tại ở cột trái
+        self.cv_cur.delete("all")
+        draw_board(self.cv_cur, st['board'], 58, 10, 10, border_color=ACCENT)
+        
+        g_desc = f" | Chi phí g(n): {st.get('g', 0)}" if self.algo == "Uniform Cost Search (UCS)" else ""
+        self.lbl_h.config(text=f"Xung đột: {State(st['board']).h()}{g_desc}")
+        
+        # 2. Vẽ các trạng thái con tiếp theo ở cột giữa
+        for w in self.children_frame.winfo_children(): w.destroy()
+        
+        neighbors = st.get('neighbors', [])
+        chosen_idx = st.get('chosen_idx', -1)
+        cols = 2
+        n_cs = 24
+        n_gap = 1
+        grid_px = 4 * (n_cs + n_gap) + 6
+        
+        for i, item in enumerate(neighbors):
+            r, c = divmod(i, cols)
+            cf = tk.Frame(self.children_frame, bg=CARD)
+            cf.grid(row=r, column=c, padx=10, pady=8, sticky="n")
+            
+            nxt_board, action, status, tile_val = item[:4]
+            lbl_text = f"Trượt ô {tile_val} {action}"
+            
+            is_chosen = (i == chosen_idx)
+            
+            # Xác định thông số hiển thị dưới bàn cờ con (depth hoặc cost g)
+            if self.algo == "Uniform Cost Search (UCS)":
+                move_cost = 2 if action in ["←", "→"] else 1
+                child_g = st.get('g', 0) + move_cost
+                val_text = f"g = {child_g}"
+            else:
+                child_d = st.get('depth', 0) + 1
+                val_text = f"d = {child_d}"
+                
+            if is_chosen:
+                val_text += " ★"
+            
+            if status == "visited":
+                status_text = "Đã duyệt (bị loại)"
+                status_color = SUB
+                bc = SUB
+            elif status == "chosen":
+                status_text = "Nước đi kế tiếp"
+                status_color = GREEN
+                bc = GREEN
+            elif status == "other":
+                status_text = "Hướng khác"
+                status_color = SUB
+                bc = None
+            else:
+                status_text = "Được thêm vào biên"
+                status_color = YELLOW
+                bc = None
+                
+            lbl_dir = tk.Label(cf, text=lbl_text, font=("Segoe UI", 10, "bold"), bg=CARD, fg=GREEN if is_chosen else TEXT)
+            lbl_dir.pack(pady=(2, 2))
+            
+            cv = tk.Canvas(cf, width=grid_px + 10, height=grid_px + 10, bg=CARD, highlightthickness=0)
+            cv.pack()
+            
+            draw_board(cv, nxt_board, n_cs, 5, 5, border_color=bc)
+            
+            # Hiển thị g hoặc d dưới bàn cờ con
+            tk.Label(cf, text=val_text, font=("Segoe UI", 9, "bold"), bg=CARD, fg=GREEN if is_chosen else YELLOW).pack(pady=(2, 0))
+            
+            # Hiển thị trạng thái duyệt
+            tk.Label(cf, text=status_text, font=("Segoe UI", 9), bg=CARD, fg=status_color).pack(pady=(0, 4))
+            
+        # 3. Vẽ đường đi ở cột phải
+        for w in self.vis_inner.winfo_children(): w.destroy()
+        
+        path = st.get('path', [])
+        vcs = 16
+        vgap = 1
+        vgrid = 4 * (vcs + vgap) + 6
+        vcols = 2
+        
+        for vi in range(len(path)):
+            vr, vc2 = divmod(vi, vcols)
+            vf = tk.Frame(self.vis_inner, bg=CARD)
+            vf.grid(row=vr, column=vc2, padx=4, pady=4)
+            
+            vcv = tk.Canvas(vf, width=vgrid + 6, height=vgrid + 6, bg=CARD, highlightthickness=0)
+            vcv.pack()
+            draw_board(vcv, path[vi], vcs, 3, 3)
+            
+            tk.Label(vf, text=f"#{vi}", font=("Segoe UI", 7), bg=CARD, fg=SUB).pack()
+            
+        self.vis_canvas.update_idletasks()
+        self.vis_canvas.configure(scrollregion=self.vis_canvas.bbox("all"))
+        
+        # 4. Cập nhật giải thích
+        self.set_exp(st['text'])
 
-        # Pre-fill default
-        for i in range(4):
-            for j in range(4):
-                self.entries[i][j].insert(0, str(DEFAULT_STATE[i][j]))
+    def set_exp(self, text):
+        self.txt_exp.config(state=tk.NORMAL)
+        self.txt_exp.delete("1.0", tk.END)
+        self.txt_exp.insert(tk.END, text)
+        self.txt_exp.config(state=tk.DISABLED)
 
-        btn_frame = tk.Frame(self, bg=BG_MAIN)
-        btn_frame.pack(pady=15)
+    def do_shuffle(self):
+        self.auto_playing = False
+        self.btn_auto.config(text="Tự chạy ⏯", bg="#5a189a")
+        
+        b = [r[:] for r in GOAL]
+        bi, bj = 3, 3
+        steps = int(self.sp_shuffle.get())
+        
+        last_move = None
+        for _ in range(steps):
+            moves = []
+            for di, dj, m_name in [(-1, 0, "U"), (1, 0, "D"), (0, -1, "L"), (0, 1, "R")]:
+                ni, nj = bi + di, bj + dj
+                if 0 <= ni < 4 and 0 <= nj < 4:
+                    if last_move == "U" and m_name == "D": continue
+                    if last_move == "D" and m_name == "U": continue
+                    if last_move == "L" and m_name == "R": continue
+                    if last_move == "R" and m_name == "L": continue
+                    moves.append((ni, nj, m_name))
+            if not moves:
+                break
+            ni, nj, m_name = random.choice(moves)
+            b[bi][bj], b[ni][nj] = b[ni][nj], b[bi][bj]
+            bi, bj = ni, nj
+            last_move = m_name
+            
+        self.board = b
+        self.steps = []
+        self.step_idx = -1
+        self.draw_initial()
 
-        tk.Button(btn_frame, text="✓ Xác nhận", font=FONT_BTN,
-                  bg=COLOR_BTN_GREEN, fg=TEXT_WHITE, relief="flat",
-                  cursor="hand2", padx=20, pady=8,
-                  command=self._on_ok).pack(side=tk.LEFT, padx=10)
+    def do_reset(self):
+        self.auto_playing = False
+        self.btn_auto.config(text="Tự chạy ⏯", bg="#5a189a")
+        self.board = [r[:] for r in DEFAULT]
+        self.steps = []
+        self.step_idx = -1
+        self.draw_initial()
 
-        tk.Button(btn_frame, text="✗ Hủy", font=FONT_BTN,
-                  bg=COLOR_BTN_RED, fg=TEXT_WHITE, relief="flat",
-                  cursor="hand2", padx=20, pady=8,
-                  command=self._on_cancel).pack(side=tk.LEFT, padx=10)
+    def do_solve(self):
+        self.auto_playing = False
+        self.btn_auto.config(text="Tự chạy ⏯", bg="#5a189a")
+        
+        if not self.algo:
+            messagebox.showwarning("Chưa chọn", "Vui lòng chọn thuật toán trước!", parent=self.win)
+            return
+            
+        fn = ALGOS[self.algo]
+        exploration_steps = fn(self.board)
+        
+        if exploration_steps and exploration_steps[-1]['status'] == 'solved':
+            goal_path = exploration_steps[-1]['path']
+            
+            self.steps = []
+            accumulated_g = 0
+            for i in range(len(goal_path)):
+                board = goal_path[i]
+                curr_state = State(board)
+                
+                raw_neighbors = curr_state.get_neighbors()
+                neighbors_data = []
+                
+                next_board = goal_path[i+1] if i < len(goal_path) - 1 else None
+                chosen_idx = -1
+                
+                if next_board:
+                    act_taken = get_move_relation(board, next_board)
+                    # Chi phí: Lên/Xuống = 1, Trái/Phải = 2 (cho UCS)
+                    move_cost = 1
+                    if self.algo == "Uniform Cost Search (UCS)":
+                        move_cost = 2 if act_taken in ["←", "→"] else 1
+                
+                for idx, (nxt, act, tile_val) in enumerate(raw_neighbors):
+                    if next_board and nxt.board == next_board:
+                        status = "chosen"
+                        chosen_idx = idx
+                    else:
+                        status = "other"
+                    neighbors_data.append((nxt.board, act, status, tile_val))
+                
+                g_desc = f" | Chi phí g(n): {accumulated_g}" if self.algo == "Uniform Cost Search (UCS)" else ""
+                
+                self.steps.append({
+                    'board': board,
+                    'status': 'solved' if i == len(goal_path) - 1 else 'solving',
+                    'depth': i,
+                    'g': accumulated_g,
+                    'path': goal_path[:i+1],
+                    'neighbors': neighbors_data,
+                    'chosen_idx': chosen_idx,
+                    'text': f"Bước {i} trong tiến trình giải câu đố.\nTrạng thái hiện tại có {curr_state.h()} ô sai vị trí.{g_desc}" if i < len(goal_path) - 1 else f"🎉 Đã đến trạng thái Đích!\nTổng chi phí: {accumulated_g}."
+                })
+                
+                if next_board:
+                    accumulated_g += move_cost
+            
+            self.show_step(0)
+        else:
+            self.steps = exploration_steps
+            if self.steps:
+                self.show_step(0)
+            else:
+                self.set_exp("Không tìm thấy lời giải trong giới hạn cho phép.")
 
-        self.protocol("WM_DELETE_WINDOW", self._on_cancel)
-        self.wait_window()
+    def do_prev(self):
+        if self.step_idx > 0:
+            self.show_step(self.step_idx - 1)
 
-    def _on_ok(self):
-        try:
-            state = []
-            all_vals = []
-            for i in range(4):
-                row = []
-                for j in range(4):
-                    val = int(self.entries[i][j].get().strip())
-                    if val < 0 or val > 15:
-                        raise ValueError(f"Giá trị {val} không hợp lệ")
-                    row.append(val)
-                    all_vals.append(val)
-                state.append(row)
+    def do_next(self):
+        if self.step_idx < len(self.steps) - 1:
+            self.show_step(self.step_idx + 1)
 
-            if sorted(all_vals) != list(range(16)):
-                messagebox.showerror("Lỗi", "Phải nhập đủ các số từ 0 đến 15, mỗi số xuất hiện đúng 1 lần!",
-                                     parent=self)
-                return
+    def toggle_auto_play(self):
+        if not self.steps:
+            return
+        self.auto_playing = not self.auto_playing
+        if self.auto_playing:
+            self.btn_auto.config(text="Dừng ⏸", bg=RED)
+            self.run_auto_step()
+        else:
+            self.btn_auto.config(text="Tự chạy ⏯", bg="#5a189a")
 
-            if not is_solvable(state):
-                messagebox.showwarning("Cảnh báo", "Trạng thái này KHÔNG thể giải được!\nVui lòng nhập lại.",
-                                       parent=self)
-                return
+    def run_auto_step(self):
+        if self.auto_playing and self.step_idx < len(self.steps) - 1:
+            self.do_next()
+            self.win.after(500, self.run_auto_step)
 
-            self.result = state
-            self.destroy()
-
-        except ValueError as e:
-            messagebox.showerror("Lỗi", f"Dữ liệu không hợp lệ!\nChỉ nhập số nguyên từ 0-15.\n{e}",
-                                 parent=self)
-
-    def _on_cancel(self):
-        self.result = None
-        self.destroy()
-
-# ============================================================
-#  GIAO DIỆN CHÍNH - GROUP 1
-# ============================================================
 def open_ui(parent, algo_name):
-    """Mở giao diện Nhóm 1: Tìm kiếm không có thông tin."""
-    parent.withdraw()
-
-    window = tk.Toplevel(parent)
-    window.title(f"Nhóm 1: Tìm kiếm không có thông tin - 15 Puzzle")
-    window.geometry("1024x620")
-    window.configure(bg=BG_MAIN)
-    window.minsize(1024, 620)
-
-    # --- State variables ---
-    current_algo = tk.StringVar(value="BFS")
-    current_state = [row[:] for row in DEFAULT_STATE]
-    solve_steps = []
-    current_step_idx = tk.IntVar(value=0)
-    is_solving = tk.BooleanVar(value=False)
-
-    # Xác định thuật toán ban đầu từ algo_name
-    if "DFS" in algo_name.upper():
-        current_algo.set("DFS")
-    elif "UCS" in algo_name.upper():
-        current_algo.set("UCS")
-    else:
-        current_algo.set("BFS")
-
-    # ─── HEADER ───
-    header_frame = tk.Frame(window, bg=BG_HEADER, height=50)
-    header_frame.pack(fill=tk.X)
-    header_frame.pack_propagate(False)
-
-    tk.Label(header_frame, text="NHÓM 1: TÌM KIẾM KHÔNG CÓ THÔNG TIN",
-             font=FONT_TITLE, bg=BG_HEADER, fg=TEXT_CYAN).pack(side=tk.LEFT, padx=15)
-
-    # Nút Quay lại
-    def on_close():
-        window.destroy()
-        parent.deiconify()
-
-    window.protocol("WM_DELETE_WINDOW", on_close)
-
-    btn_back = tk.Button(header_frame, text="✕ Quay lại", font=FONT_BTN,
-                         bg=COLOR_BTN_RED, fg=TEXT_WHITE, relief="flat",
-                         cursor="hand2", padx=12, pady=2, command=on_close)
-    btn_back.pack(side=tk.RIGHT, padx=10, pady=8)
-
-    # Tab thuật toán
-    tab_frame = tk.Frame(header_frame, bg=BG_HEADER)
-    tab_frame.pack(side=tk.RIGHT, padx=5)
-
-    tab_buttons = {}
-
-    def switch_algo(name):
-        current_algo.set(name)
-        solve_steps.clear()
-        current_step_idx.set(0)
-        update_tabs()
-        update_display()
-
-    def update_tabs():
-        for name, btn in tab_buttons.items():
-            if name == current_algo.get():
-                btn.config(bg=COLOR_TAB_ACTIVE)
-            else:
-                btn.config(bg=COLOR_TAB_INACTIVE)
-
-    for algo in ["BFS", "DFS", "UCS"]:
-        btn = tk.Button(tab_frame, text=algo, font=FONT_BTN,
-                        bg=COLOR_TAB_INACTIVE, fg=TEXT_WHITE,
-                        relief="flat", cursor="hand2", padx=14, pady=2,
-                        command=lambda a=algo: switch_algo(a))
-        btn.pack(side=tk.LEFT, padx=3, pady=8)
-        tab_buttons[algo] = btn
-
-        # Hover effects
-        def on_enter(e, b=btn, a=algo):
-            if current_algo.get() != a:
-                b.config(bg=COLOR_TAB_HOVER)
-
-        def on_leave(e, b=btn, a=algo):
-            if current_algo.get() != a:
-                b.config(bg=COLOR_TAB_INACTIVE)
-
-        btn.bind("<Enter>", on_enter)
-        btn.bind("<Leave>", on_leave)
-
-    update_tabs()
-
-    # ─── MAIN CONTENT ───
-    content_frame = tk.Frame(window, bg=BG_MAIN)
-    content_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=5)
-
-    # --- Panel trái: NODE ĐANG XÉT ---
-    left_panel = tk.Frame(content_frame, bg=BG_PANEL, bd=1, relief="solid",
-                          highlightbackground=BORDER_COLOR, highlightthickness=1)
-    left_panel.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 5), pady=0)
-    left_panel.config(width=200)
-    left_panel.pack_propagate(False)
-
-    tk.Label(left_panel, text="NODE ĐANG XÉT", font=FONT_SECTION,
-             bg=BG_PANEL, fg=TEXT_WHITE).pack(pady=(8, 5))
-
-    left_canvas = tk.Canvas(left_panel, bg=BG_PANEL, highlightthickness=0,
-                            width=185, height=185)
-    left_canvas.pack(pady=5)
-
-    left_info_label = tk.Label(left_panel, text="", font=FONT_INFO,
-                               bg=BG_PANEL, fg=TEXT_PINK, justify="center")
-    left_info_label.pack(pady=5)
-
-    # --- Panel giữa: CÁC NODE CON ---
-    center_panel = tk.Frame(content_frame, bg=BG_PANEL, bd=1, relief="solid",
-                            highlightbackground=BORDER_COLOR, highlightthickness=1)
-    center_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=0)
-
-    tk.Label(center_panel, text="CÁC NODE CON", font=FONT_SECTION,
-             bg=BG_PANEL, fg=TEXT_WHITE).pack(pady=(8, 5))
-
-    center_canvas = tk.Canvas(center_panel, bg=BG_PANEL, highlightthickness=0)
-    center_canvas.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-
-    # --- Panel phải: ĐÃ XÉT + GIẢI THÍCH ---
-    right_panel = tk.Frame(content_frame, bg=BG_PANEL, bd=1, relief="solid",
-                           highlightbackground=BORDER_COLOR, highlightthickness=1)
-    right_panel.pack(side=tk.RIGHT, fill=tk.Y, padx=(5, 0), pady=0)
-    right_panel.config(width=230)
-    right_panel.pack_propagate(False)
-
-    tk.Label(right_panel, text="ĐÃ XÉT", font=FONT_SECTION,
-             bg=BG_PANEL, fg=TEXT_WHITE).pack(pady=(8, 3))
-
-    # Canvas cho thumbnails đã xét
-    visited_canvas = tk.Canvas(right_panel, bg=BG_PANEL, highlightthickness=0,
-                               width=210, height=180)
-    visited_canvas.pack(pady=2, padx=5)
-
-    # Scrollbar cho visited
-    visited_scroll_frame = tk.Frame(right_panel, bg=BG_PANEL)
-    visited_scroll_frame.pack(fill=tk.X, padx=5)
-
-    visited_info_label = tk.Label(visited_scroll_frame, text="", font=("Segoe UI", 8),
-                                  bg=BG_PANEL, fg=TEXT_GRAY)
-    visited_info_label.pack()
-
-    # Giải thích
-    explain_frame = tk.Frame(right_panel, bg="#0d1b2a", bd=1, relief="solid",
-                             highlightbackground=BORDER_COLOR, highlightthickness=1)
-    explain_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=(5, 8))
-
-    tk.Label(explain_frame, text="GIẢI THÍCH", font=FONT_SECTION,
-             bg="#0d1b2a", fg=TEXT_YELLOW).pack(pady=(5, 3))
-
-    explain_text = tk.Text(explain_frame, bg="#0d1b2a", fg=TEXT_WHITE,
-                           font=FONT_EXPLAIN, wrap=tk.WORD, relief="flat",
-                           height=8, padx=8, pady=5)
-    explain_text.pack(fill=tk.BOTH, expand=True, padx=3, pady=(0, 5))
-    explain_text.config(state=tk.DISABLED)
-
-    # ─── FOOTER ───
-    footer_frame = tk.Frame(window, bg=BG_HEADER, height=50)
-    footer_frame.pack(fill=tk.X, side=tk.BOTTOM)
-    footer_frame.pack_propagate(False)
-
-    # Nút Nhập tay
-    def on_input():
-        dialog = PuzzleInputDialog(window)
-        if dialog.result:
-            nonlocal current_state
-            current_state = dialog.result
-            solve_steps.clear()
-            current_step_idx.set(0)
-            update_display()
-
-    btn_input = tk.Button(footer_frame, text="📝 Nhập tay", font=FONT_BTN,
-                          bg=COLOR_BTN_TEAL, fg=TEXT_WHITE, relief="flat",
-                          cursor="hand2", padx=14, pady=4, command=on_input)
-    btn_input.pack(side=tk.LEFT, padx=(15, 5), pady=8)
-
-    # Nút Giải
-    def on_solve():
-        if is_solving.get():
-            return
-
-        algo = current_algo.get()
-        if not is_solvable(current_state):
-            messagebox.showwarning("Cảnh báo",
-                                   "Trạng thái hiện tại KHÔNG thể giải được!\nVui lòng nhập trạng thái khác.",
-                                   parent=window)
-            return
-
-        is_solving.set(True)
-        btn_solve.config(state=tk.DISABLED, text="⏳ Đang giải...")
-        solve_steps.clear()
-        current_step_idx.set(0)
-
-        def do_solve():
-            try:
-                if algo == "BFS":
-                    result = solve_bfs(current_state)
-                elif algo == "DFS":
-                    result = solve_dfs(current_state)
-                else:
-                    result = solve_ucs(current_state)
-
-                solve_steps.extend(result)
-            except Exception as e:
-                solve_steps.append(SolveStep(current_state, [], -1, 0, 0, f"Lỗi: {str(e)}"))
-            finally:
-                window.after(0, on_solve_done)
-
-        def on_solve_done():
-            is_solving.set(False)
-            btn_solve.config(state=tk.NORMAL, text="▶ Giải")
-            if solve_steps:
-                current_step_idx.set(0)
-            update_display()
-
-        thread = threading.Thread(target=do_solve, daemon=True)
-        thread.start()
-
-    btn_solve = tk.Button(footer_frame, text="▶ Giải", font=FONT_BTN,
-                          bg=COLOR_BTN_GREEN, fg=TEXT_WHITE, relief="flat",
-                          cursor="hand2", padx=14, pady=4, command=on_solve)
-    btn_solve.pack(side=tk.LEFT, padx=5, pady=8)
-
-    # Nút Bước trước
-    def on_prev():
-        if solve_steps and current_step_idx.get() > 0:
-            current_step_idx.set(current_step_idx.get() - 1)
-            update_display()
-
-    btn_prev = tk.Button(footer_frame, text="◀◀ Bước trước", font=FONT_BTN,
-                         bg=COLOR_BTN_BLUE, fg=TEXT_WHITE, relief="flat",
-                         cursor="hand2", padx=14, pady=4, command=on_prev)
-    btn_prev.pack(side=tk.LEFT, padx=5, pady=8)
-
-    # Nút Bước sau
-    def on_next():
-        if solve_steps and current_step_idx.get() < len(solve_steps) - 1:
-            current_step_idx.set(current_step_idx.get() + 1)
-            update_display()
-
-    btn_next = tk.Button(footer_frame, text="Bước sau ▶▶", font=FONT_BTN,
-                         bg=COLOR_BTN_BLUE, fg=TEXT_WHITE, relief="flat",
-                         cursor="hand2", padx=14, pady=4, command=on_next)
-    btn_next.pack(side=tk.LEFT, padx=5, pady=8)
-
-    # Nút Auto Play / Dừng
-    auto_playing = tk.BooleanVar(value=False)
-
-    def on_auto_play():
-        if auto_playing.get():
-            auto_playing.set(False)
-            btn_auto.config(text="▶ Tự chạy", bg=COLOR_BTN_ORANGE)
-            return
-
-        if not solve_steps:
-            return
-
-        auto_playing.set(True)
-        btn_auto.config(text="⏸ Dừng", bg=COLOR_BTN_RED)
-
-        def auto_step():
-            if not auto_playing.get():
-                btn_auto.config(text="▶ Tự chạy", bg=COLOR_BTN_ORANGE)
-                return
-            if current_step_idx.get() < len(solve_steps) - 1:
-                current_step_idx.set(current_step_idx.get() + 1)
-                update_display()
-                window.after(300, auto_step)
-            else:
-                auto_playing.set(False)
-                btn_auto.config(text="▶ Tự chạy", bg=COLOR_BTN_ORANGE)
-
-        auto_step()
-
-    btn_auto = tk.Button(footer_frame, text="▶ Tự chạy", font=FONT_BTN,
-                         bg=COLOR_BTN_ORANGE, fg=TEXT_WHITE, relief="flat",
-                         cursor="hand2", padx=14, pady=4, command=on_auto_play)
-    btn_auto.pack(side=tk.LEFT, padx=5, pady=8)
-
-    # Label bước
-    step_label = tk.Label(footer_frame, text="", font=FONT_BTN,
-                          bg=BG_HEADER, fg=TEXT_CYAN)
-    step_label.pack(side=tk.RIGHT, padx=15, pady=8)
-
-    # ─── CẬP NHẬT HIỂN THỊ ───
-    def update_display():
-        left_canvas.delete("all")
-        center_canvas.delete("all")
-        visited_canvas.delete("all")
-
-        explain_text.config(state=tk.NORMAL)
-        explain_text.delete("1.0", tk.END)
-
-        if not solve_steps:
-            # Chưa giải - hiển thị trạng thái ban đầu
-            draw_puzzle(left_canvas, current_state, 10, 10, 40)
-            left_info_label.config(text="Trạng thái ban đầu")
-            center_canvas.create_text(
-                center_canvas.winfo_width() // 2 if center_canvas.winfo_width() > 1 else 250,
-                center_canvas.winfo_height() // 2 if center_canvas.winfo_height() > 1 else 200,
-                text="Nhấn \"Giải\" để bắt đầu\ntìm kiếm lời giải",
-                fill=TEXT_GRAY, font=FONT_SECTION, justify="center"
-            )
-            explain_text.insert("1.0", f"Thuật toán: {current_algo.get()}\n\n"
-                                       f"Nhấn \"Giải\" để chạy thuật toán.\n"
-                                       f"Hoặc \"Nhập tay\" để thay đổi trạng thái.")
-            explain_text.config(state=tk.DISABLED)
-            step_label.config(text="")
-            visited_info_label.config(text="")
-            return
-
-        idx = current_step_idx.get()
-        step = solve_steps[idx]
-
-        # --- Vẽ node đang xét (panel trái) ---
-        draw_puzzle(left_canvas, step.current_state, 10, 10, 40)
-
-        algo = current_algo.get()
-        if algo == "UCS":
-            left_info_label.config(text=f"g = {step.cost}")
-        else:
-            left_info_label.config(text=f"depth = {step.depth}")
-
-        # --- Vẽ các node con (panel giữa) ---
-        center_canvas.update_idletasks()
-        cw = center_canvas.winfo_width()
-        ch = center_canvas.winfo_height()
-
-        children = step.children
-        n = len(children)
-
-        if n == 0:
-            center_canvas.create_text(cw // 2, ch // 2,
-                                      text="Không có node con\n(Đích hoặc kết thúc)",
-                                      fill=TEXT_GRAY, font=FONT_SECTION, justify="center")
-        else:
-            # Layout: tối đa 2 cột
-            cols = min(n, 2)
-            rows = (n + 1) // 2
-            cell_sz = 28
-            puzzle_w = cell_sz * 4 + 2 * 5 + 6
-            puzzle_h = cell_sz * 4 + 2 * 5 + 6
-
-            gap_x = 30
-            gap_y = 35
-            total_w = cols * puzzle_w + (cols - 1) * gap_x
-            total_h = rows * (puzzle_h + 30) + (rows - 1) * gap_y
-
-            start_x = (cw - total_w) // 2
-            start_y = max(10, (ch - total_h) // 2 - 10)
-
-            for ci, (label, child_state) in enumerate(children):
-                col = ci % 2
-                row = ci // 2
-
-                px = start_x + col * (puzzle_w + gap_x)
-                py = start_y + row * (puzzle_h + 30 + gap_y)
-
-                # Label phía trên
-                is_chosen = (ci == step.chosen_idx)
-
-                label_color = COLOR_HIGHLIGHT if is_chosen else TEXT_GRAY
-                center_canvas.create_text(px + puzzle_w // 2, py,
-                                          text=label + (" ★" if is_chosen else ""),
-                                          fill=label_color, font=("Segoe UI", 8, "bold"),
-                                          anchor="s")
-
-                draw_puzzle(center_canvas, child_state, px, py + 3, cell_sz,
-                            highlight=is_chosen, highlight_color=COLOR_HIGHLIGHT)
-
-        # --- Vẽ thumbnails đã xét (panel phải) ---
-        thumb_size = 12
-        thumb_total = thumb_size * 4 + 5
-        cols_t = 3
-        gap_t = 8
-
-        # Hiển thị tối đa các bước trước đó
-        max_thumbs = min(idx + 1, 12)  # Giới hạn 12 thumbnails
-        start_from = max(0, idx + 1 - max_thumbs)
-
-        for ti in range(max_thumbs):
-            si = start_from + ti
-            col_t = ti % cols_t
-            row_t = ti // cols_t
-
-            tx = 5 + col_t * (thumb_total + gap_t)
-            ty = 5 + row_t * (thumb_total + gap_t + 15)
-
-            s = solve_steps[si]
-            draw_puzzle(visited_canvas, s.current_state, tx, ty, thumb_size)
-
-            # Số thứ tự
-            visited_canvas.create_text(tx + thumb_total // 2, ty + thumb_total + 3,
-                                       text=f"#{si + 1}", fill=TEXT_GRAY,
-                                       font=("Segoe UI", 7))
-
-        visited_info_label.config(text=f"Hiển thị {max_thumbs}/{idx + 1} node")
-
-        # --- Giải thích ---
-        explain_text.insert("1.0", step.explanation)
-        explain_text.config(state=tk.DISABLED)
-
-        # --- Cập nhật step label ---
-        step_label.config(text=f"Bước {idx + 1}/{len(solve_steps)}")
-
-    # Hiển thị ban đầu
-    window.after(100, update_display)
+    UninformedUI(parent, algo_name)

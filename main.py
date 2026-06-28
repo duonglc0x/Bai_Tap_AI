@@ -8,6 +8,8 @@ import group4_complex
 import group5_csp
 import group6_adversarial
 
+
+
 # --- Bảng màu (Modern Dark Theme) ---
 BG_COLOR = "#1e1e24"
 FRAME_COLOR = "#2b2b36"
@@ -77,7 +79,7 @@ def main():
     algorithm_groups = {
         "Nhóm 1: Tìm kiếm mù": ["Breadth-First Search (BFS)", "Depth-First Search (DFS)", "Uniform Cost Search (UCS)"],
         "Nhóm 2: Tìm kiếm có thông tin": ["Greedy Search", "A* Search", "IDA*"],
-        "Nhóm 3: Tìm kiếm cục bộ": ["Simple Hill Climbing", "Stochastic Hill Climbing", "Local Beam"],
+        "Nhóm 3: Tìm kiếm cục bộ": ["Simple Hill Climbing", "Steepest-Ascent Hill Climbing", "Stochastic Hill Climbing"],
         "Nhóm 4: Môi trường phức tạp": ["AND-OR Search", "No Observation", "Partially Observable"],
         "Nhóm 5: Thoả mãn ràng buộc": ["Backtracking", "Forward Checking", "Min-Conflicts"],
         "Nhóm 6: Tìm kiếm đối kháng": ["Minimax", "Alpha-Beta Pruning", "Expectimax"]
