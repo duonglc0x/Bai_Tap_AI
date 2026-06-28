@@ -75,7 +75,7 @@ def main():
     lbl_subtitle.pack(pady=(5, 0))
 
     algorithm_groups = {
-        "Nhóm 1: Tìm kiếm mù": ["Breadth-First Search (BFS)", "Depth-First Search (DFS)", "Iterative Deepening Search (IDS)"],
+        "Nhóm 1: Tìm kiếm mù": ["Breadth-First Search (BFS)", "Depth-First Search (DFS)", "Uniform Cost Search (UCS)"],
         "Nhóm 2: Tìm kiếm có thông tin": ["Greedy Search", "A* Search", "IDA*"],
         "Nhóm 3: Tìm kiếm cục bộ": ["Simple Hill Climbing", "Stochastic Hill Climbing", "Local Beam"],
         "Nhóm 4: Môi trường phức tạp": ["AND-OR Search", "No Observation", "Partially Observable"],
