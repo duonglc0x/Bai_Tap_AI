@@ -1,314 +1,221 @@
-import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import tkinter as tk
+from tkinter import messagebox
 import random
-from base_algorithm import BaseAlgorithm, State
-from heuristic import heuristic
 
-class Minimax(BaseAlgorithm):
-    """
-    Thuật toán Đối kháng Minimax.
-    Được xây dựng cho trò chơi zero-sum có tổng lợi ích bằng 0. 
-    Hệ thống SAM-2 đóng vai trò MAX (cố gắng tối đa hóa điểm số, tức là áp sát để tiêu diệt mục tiêu).
-    Hệ máy bay B-52 đóng vai trò MIN (cố gắng giảm thiểu điểm số của MAX, tức là bay tránh ra xa).
-    """
-    def run_adversarial(self, environment, start, initial_target):
-        history = []
-        sam_pos = start
-        b52_pos = initial_target
-        current_path = [sam_pos]
+# --- LOGIC MÔI TRƯỜNG ---
+class PuzzleEnv:
+    GOAL1 = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0)
+    GOAL2 = (0, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
+
+    @staticmethod
+    def get_neighbors(state, last_state):
+        neighbors = []
+        idx = state.index(0)
+        r, c = divmod(idx, 4)
+        for move in [-4, 4, -1, 1]:
+            n_idx = idx + move
+            if 0 <= n_idx < 16 and not (move == 1 and c == 3) and not (move == -1 and c == 0):
+                new_s = list(state)
+                new_s[idx], new_s[n_idx] = new_s[n_idx], new_s[idx]
+                t_s = tuple(new_s)
+                if t_s != last_state: neighbors.append(t_s)
+        return neighbors
+
+    @staticmethod
+    def heuristic(state, goal):
+        dist = 0
+        for i, val in enumerate(state):
+            if val == 0: continue
+            tar_idx = goal.index(val)
+            dist += abs(i // 4 - tar_idx // 4) + abs(i % 4 - tar_idx % 4)
+        return dist
+
+    @staticmethod
+    def count_misplaced(state, goal):
+        return sum(1 for i in range(16) if state[i] != goal[i] and state[i] != 0)
+
+# --- THUẬT TOÁN ---
+class Minimax:
+    def get_move(self, s, l, g, d=2):
+        def m(s, d, is_max, l):
+            if d == 0: return -PuzzleEnv.heuristic(s, g), None
+            moves = PuzzleEnv.get_neighbors(s, l)
+            if not moves: return -PuzzleEnv.heuristic(s, g), None
+            best = -float('inf') if is_max else float('inf')
+            best_move = moves[0]
+            for m_next in moves:
+                val, _ = m(m_next, d-1, not is_max, s)
+                if (is_max and val > best) or (not is_max and val < best):
+                    best, best_move = val, m_next
+            return best, best_move
         
-        def minimax(s_pos, b_pos, depth, is_max):
-            """
-            Hàm đệ quy phân tích cây trò chơi Minimax.
-            Khám phá luân phiên giữa lượt đi của SAM và lượt phản ứng của B-52.
-            """
-            # Trạng thái kết thúc: Duyệt tới độ sâu tối đa hoặc mục tiêu bị tiêu diệt
-            if depth == 0 or s_pos == b_pos:
-                # Điểm số đánh giá là nghịch đảo của khoảng cách. Khoảng cách càng ngắn, SAM càng có lợi (giá trị càng lớn)
-                return -heuristic(s_pos, b_pos), None
-                
+        moves = PuzzleEnv.get_neighbors(s, l)
+        if not moves: return s, []
+        _, best = m(s, d, True, l)
+        return best, moves
+
+class AlphaBeta(Minimax):
+    def get_move(self, s, l, g, d=2):
+        def ab(s, d, a, b, is_max, l):
+            if d == 0: return -PuzzleEnv.heuristic(s, g), None
+            moves = PuzzleEnv.get_neighbors(s, l)
+            best_move = moves[0]
             if is_max:
-                best_val = -float('inf')
-                best_moves = [s_pos]
-                for move in environment.get_neighbors(s_pos[0], s_pos[1]):
-                    # MAX gọi MIN (Đến lượt B-52 chạy)
-                    val, _ = minimax(move, b_pos, depth - 1, False)
-                    if val > best_val:
-                        best_val = val
-                        best_moves = [move]
-                    elif val == best_val:
-                        best_moves.append(move)
-                return best_val, random.choice(best_moves)
+                v = -float('inf')
+                for m in moves:
+                    val, _ = ab(m, d-1, a, b, False, s)
+                    if val > v: v, best_move = val, m
+                    a = max(a, val)
+                    if b <= a: break
+                return v, best_move
             else:
-                best_val = float('inf')
-                best_moves = [b_pos]
-                for move in environment.get_neighbors(b_pos[0], b_pos[1]):
-                    # MIN gọi MAX (Đến lượt SAM đi)
-                    val, _ = minimax(s_pos, move, depth - 1, True)
-                    if val < best_val:
-                        best_val = val
-                        best_moves = [move]
-                    elif val == best_val:
-                        best_moves.append(move)
-                return best_val, random.choice(best_moves)
-
-        step = 0
-        while sam_pos != b52_pos and step < 100:
-            # Bước 1: Lượt của SAM-2 (Đóng vai trò MAX - tối đa hóa điểm số)
-            _, best_sam_move = minimax(sam_pos, b52_pos, depth=3, is_max=True)
-            sam_pos = best_sam_move
-            current_path.append(sam_pos)
-            
-            history.append(State(
-                frontier=[b52_pos], 
-                explored=set(current_path),
-                current_path=list(current_path),
-                hud_metrics={"Current Algorithm": "Minimax", "Turn": "SAM-2", "Distance": str(heuristic(sam_pos, b52_pos))},
-                action_description=f"SAM-2 đi tới {sam_pos}. Đang dùng Minimax (depth=3) đuổi theo B-52 tại {b52_pos}."
-            ))
-            
-            if sam_pos == b52_pos:
-                break
-                
-            # Bước 2: Lượt của B-52 (Đóng vai trò MIN - cực tiểu hóa điểm số của SAM-2)
-            _, best_b52_move = minimax(sam_pos, b52_pos, depth=3, is_max=False)
-            b52_pos = best_b52_move
-            
-            history.append(State(
-                frontier=[b52_pos],
-                explored=set(current_path),
-                current_path=list(current_path),
-                hud_metrics={"Current Algorithm": "Minimax", "Turn": "B-52", "Distance": str(heuristic(sam_pos, b52_pos))},
-                action_description=f"B-52 né tránh sang {b52_pos}. Khoảng cách hiện tại: {heuristic(sam_pos, b52_pos)}."
-            ))
-            step += 1
-            
-        history.append(State(
-            frontier=[],
-            explored=set(current_path),
-            current_path=list(current_path),
-            hud_metrics={"Current Algorithm": "Minimax", "Status": "Game Over"},
-            action_description="Trò chơi kết thúc! SAM-2 đã tiêu diệt B-52." if sam_pos == b52_pos else "B-52 đã trốn thoát!"
-        ))
-        return history
-
-class AlphaBeta(BaseAlgorithm):
-    """
-    Thuật toán Tỉa nhánh Alpha-Beta (Alpha-Beta Pruning).
-    Là phiên bản tối ưu của Minimax. Nó duy trì 2 biến `alpha` và `beta` để theo dõi những giá trị xấu nhất
-    mà MAX và MIN chắc chắn sẽ phải nhận. Nếu nhận thấy có một nhánh nào đó dẫn đến một kết quả "chắc chắn tệ hơn"
-    những phương án đã tìm được, nó sẽ từ chối duyệt sâu xuống nhánh đó để tiết kiệm tài nguyên.
-
-    Police đóng vai trò MAX (tối đa hóa điểm số — áp sát để bắt Thief).
-    Thief đóng vai trò MIN (cực tiểu hóa điểm số của MAX — chạy trốn càng xa càng tốt).
-    """
-    def run(self, environment, start: tuple, target: tuple):
-        return self.run_adversarial(environment, start, target)
-
-    def run_adversarial(self, environment, start: tuple, initial_target: tuple):
-        history = []
-        police_pos = start
-        thief_pos = initial_target
-        current_path = [police_pos]
-
-        def alphabeta(p_pos, t_pos, depth, alpha, beta, is_max):
-            """
-            Hàm đệ quy phân tích cây trò chơi với kỹ thuật tỉa nhánh Alpha-Beta.
-            Khám phá luân phiên giữa lượt đi của Police (MAX) và lượt phản ứng của Thief (MIN).
-            """
-            # Trạng thái kết thúc: Duyệt tới độ sâu tối đa hoặc Police đã bắt được Thief
-            if depth == 0 or p_pos == t_pos:
-                # Điểm số đánh giá là nghịch đảo khoảng cách. Khoảng cách càng ngắn, Police càng có lợi.
-                return -heuristic(p_pos, t_pos), None
-
-            if is_max:
-                best_val = -float('inf')
-                best_moves = [p_pos]
-                for move in environment.get_neighbors(p_pos[0], p_pos[1]):
-                    # MAX gọi MIN (đến lượt Thief chạy trốn)
-                    val, _ = alphabeta(move, t_pos, depth - 1, alpha, beta, False)
-                    if val > best_val:
-                        best_val = val
-                        best_moves = [move]
-                    elif val == best_val:
-                        best_moves.append(move)
-
-                    # Cập nhật chặn dưới của MAX
-                    alpha = max(alpha, best_val)
-
-                    # Beta cut-off: Nhánh này đã đưa cho MAX một giá trị quá lớn,
-                    # do đó MIN ở nút cha chắc chắn sẽ không bao giờ để MAX đi vào nhánh này.
-                    # Ngừng quét!
-                    if beta <= alpha:
-                        break
-                return best_val, random.choice(best_moves)
-            else:
-                best_val = float('inf')
-                best_moves = [t_pos]
-                for move in environment.get_neighbors(t_pos[0], t_pos[1]):
-                    # MIN gọi MAX (đến lượt Police truy đuổi)
-                    val, _ = alphabeta(p_pos, move, depth - 1, alpha, beta, True)
-                    if val < best_val:
-                        best_val = val
-                        best_moves = [move]
-                    elif val == best_val:
-                        best_moves.append(move)
-
-                    # Cập nhật chặn trên của MIN
-                    beta = min(beta, best_val)
-
-                    # Alpha cut-off: Nhánh này đã dồn MIN tới giá trị tồi tệ,
-                    # do đó MAX ở nút cha chắc chắn sẽ không bao giờ chọn con đường đến đây.
-                    # Ngừng quét!
-                    if beta <= alpha:
-                        break
-                return best_val, random.choice(best_moves)
-
-        step = 0
-        while police_pos != thief_pos and step < 100:
-            # Bước 1: Lượt của Police (đóng vai trò MAX — tối đa hóa điểm số)
-            _, best_police_move = alphabeta(police_pos, thief_pos, 3, -float('inf'), float('inf'), True)
-            police_pos = best_police_move
-            current_path.append(police_pos)
-
-            history.append(State(
-                frontier=[thief_pos],
-                explored=set(current_path),
-                current_path=list(current_path),
-                hud_metrics={
-                    "Current Algorithm": "Alpha-Beta Pruning",
-                    "Turn": "Police",
-                    "Distance": str(heuristic(police_pos, thief_pos))
-                },
-                action_description=f"Police đi tới {police_pos}. Dùng Alpha-Beta (depth=3) với bộ tỉa nhanh hơn."
-            ))
-
-            if police_pos == thief_pos:
-                break
-
-            # Bước 2: Lượt của Thief (đóng vai trò MIN — cực tiểu hóa điểm số của Police)
-            _, best_thief_move = alphabeta(police_pos, thief_pos, 3, -float('inf'), float('inf'), False)
-            thief_pos = best_thief_move
-
-            history.append(State(
-                frontier=[thief_pos],
-                explored=set(current_path),
-                current_path=list(current_path),
-                hud_metrics={
-                    "Current Algorithm": "Alpha-Beta Pruning",
-                    "Turn": "Thief",
-                    "Distance": str(heuristic(police_pos, thief_pos))
-                },
-                action_description=f"Thief né tránh khôn ngoan sang {thief_pos}."
-            ))
-            step += 1
-
-        history.append(State(
-            frontier=[],
-            explored=set(current_path),
-            current_path=list(current_path),
-            hud_metrics={"Current Algorithm": "Alpha-Beta Pruning", "Status": "Game Over"},
-            action_description="Trò chơi kết thúc! Police đã bắt được Thief." if police_pos == thief_pos else "Thief đã trốn thoát!"
-        ))
-        return history
+                v = float('inf')
+                for m in moves:
+                    val, _ = ab(m, d-1, a, b, True, s)
+                    if val < v: v, best_move = val, m
+                    b = min(b, val)
+                    if b <= a: break
+                return v, best_move
         
-class Expectimax(BaseAlgorithm):
-    """
-    Thuật toán Expectimax.
-    Áp dụng cho môi trường có yếu tố ngẫu nhiên (hoặc đối thủ di chuyển hoàn toàn phi lý trí).
-    Không giống như Minimax (giả định đối thủ luôn đưa ra lựa chọn thông minh nhất gây bất lợi cho ta),
-    trong Expectimax, nút MIN được thay thế bằng nút CHANCE (Môi trường/Sự kiện ngẫu nhiên).
-    Kết quả trả về không phải điểm tối thiểu mà là trung bình có trọng số của mọi khả năng.
+        moves = PuzzleEnv.get_neighbors(s, l)
+        if not moves: return s, []
+        _, best = ab(s, d, -float('inf'), float('inf'), True, l)
+        return best, moves
 
-    Police đóng vai trò MAX (dự đoán bằng mô hình kỳ vọng).
-    Thief di chuyển hoàn toàn ngẫu nhiên (Chance Node) do hoảng loạn.
-    """
-    def run(self, environment, start: tuple, target: tuple):
-        return self.run_adversarial(environment, start, target)
-
-    def run_adversarial(self, environment, start: tuple, initial_target: tuple):
-        history = []
-        police_pos = start
-        thief_pos = initial_target
-        current_path = [police_pos]
-
-        def expectimax(p_pos, t_pos, depth, is_max):
-            """
-            Hàm đệ quy phân tích cây Expectimax.
-            Nút MAX đại diện cho lượt chọn hành động tối ưu của Police.
-            Nút Chance đại diện cho lượt di chuyển ngẫu nhiên của Thief.
-            """
-            # Trạng thái kết thúc: Duyệt tới độ sâu tối đa hoặc Police đã bắt được Thief
-            if depth == 0 or p_pos == t_pos:
-                return -heuristic(p_pos, t_pos), None
-
+class Expectimax(Minimax):
+    def get_move(self, s, l, g, d=2):
+        def exp(s, d, is_max, l):
+            if d == 0: return -PuzzleEnv.heuristic(s, g), None
+            moves = PuzzleEnv.get_neighbors(s, l)
             if is_max:
-                best_val = -float('inf')
-                best_moves = [p_pos]
-                for move in environment.get_neighbors(p_pos[0], p_pos[1]):
-                    # MAX gọi Chance (đến lượt Thief di chuyển ngẫu nhiên)
-                    val, _ = expectimax(move, t_pos, depth - 1, False)
-                    if val > best_val:
-                        best_val = val
-                        best_moves = [move]
-                    elif val == best_val:
-                        best_moves.append(move)
-                return best_val, random.choice(best_moves)
-            else:
-                # Nút Chance: Tính toán Giá trị Kỳ vọng (Expected Value) bằng trung bình cộng
-                # (Vì mô phỏng tỷ lệ phần trăm xảy ra sự kiện là đồng đều giữa các lân cận).
-                moves = environment.get_neighbors(t_pos[0], t_pos[1])
-                if not moves:
-                    return -heuristic(p_pos, t_pos), t_pos
-                avg_val = 0
-                for move in moves:
-                    val, _ = expectimax(p_pos, move, depth - 1, True)
-                    avg_val += val
-                return avg_val / len(moves), None
+                v = -float('inf'); best_m = moves[0]
+                for m in moves:
+                    val, _ = exp(m, d-1, False, s)
+                    if val > v: v, best_m = val, m
+                return v, best_m
+            else: return sum(exp(m, d-1, True, s)[0] for m in moves)/len(moves), None
+        
+        moves = PuzzleEnv.get_neighbors(s, l)
+        if not moves: return s, []
+        _, best = exp(s, d, True, l)
+        return best, moves
 
-        step = 0
-        while police_pos != thief_pos and step < 100:
-            # Lượt của Police (giả định rằng Thief sẽ chạy loạn xạ, không có chiến thuật)
-            _, best_police_move = expectimax(police_pos, thief_pos, depth=3, is_max=True)
-            police_pos = best_police_move
-            current_path.append(police_pos)
+# --- GIAO DIỆN UI ---
+class AdversarialUI:
+    def __init__(self, parent, algo_name):
+        self.win = tk.Toplevel(parent) # Tạo cửa sổ mới đè lên parent
+        self.win.title(f"Human vs {algo_name}")
+        self.win.geometry("1000x700")
+        self.win.configure(bg="#1e1e24")
 
-            history.append(State(
-                frontier=[thief_pos],
-                explored=set(current_path),
-                current_path=list(current_path),
-                hud_metrics={
-                    "Current Algorithm": "Expectimax",
-                    "Turn": "Police",
-                    "Distance": str(heuristic(police_pos, thief_pos))
-                },
-                action_description=f"Police đi tới {police_pos}. Đang dùng mô hình kỳ vọng (Expectimax) dự đoán."
-            ))
+        # Khởi tạo thuật toán
+        solvers = {"Minimax": Minimax(), "Alpha-Beta Pruning": AlphaBeta(), "Expectimax": Expectimax()}
+        self.ai = solvers.get(algo_name, Minimax())
+        self.MAX_MOVES = 50
+        
+        # Gọi reset_game SAU KHI UI đã sẵn sàng
+        self.setup_ui()
+        self.reset_game()
 
-            if police_pos == thief_pos:
-                break
+    def setup_ui(self):
+        # Layout chính
+        main = tk.Frame(self.win, bg="#1e1e24")
+        main.pack(expand=True, fill=tk.BOTH, padx=20, pady=20)
 
-            # Lượt của Thief: di chuyển hoàn toàn ngẫu nhiên do hoảng loạn
-            thief_pos = random.choice(environment.get_neighbors(thief_pos[0], thief_pos[1]))
+        # Cột P1
+        self.f1 = self.create_side_panel(main, "GOAL CỦA BẠN", PuzzleEnv.GOAL1, "#3a86ff")
+        self.f1.pack(side=tk.LEFT, fill=tk.Y, padx=10)
 
-            history.append(State(
-                frontier=[thief_pos],
-                explored=set(current_path),
-                current_path=list(current_path),
-                hud_metrics={
-                    "Current Algorithm": "Expectimax",
-                    "Turn": "Thief",
-                    "Distance": str(heuristic(police_pos, thief_pos))
-                },
-                action_description=f"Thief di chuyển ngẫu nhiên (Chance Node) sang {thief_pos}."
-            ))
-            step += 1
+        # Cột giữa
+        center = tk.Frame(main, bg="#1e1e24")
+        center.pack(side=tk.LEFT, expand=True)
+        self.cv = tk.Canvas(center, width=400, height=400, bg="#2b2b36", highlightthickness=0)
+        self.cv.pack()
+        self.cv.bind("<Button-1>", self.on_click)
+        
+        self.lbl_status = tk.Label(center, text="Bước: 0/50", fg="white", bg="#1e1e24", font=("Arial", 14))
+        self.lbl_status.pack(pady=10)
+        tk.Button(center, text="Reset Ván Mới", command=self.reset_game, bg="#444455", fg="white").pack()
 
-        history.append(State(
-            frontier=[],
-            explored=set(current_path),
-            current_path=list(current_path),
-            hud_metrics={"Current Algorithm": "Expectimax", "Status": "Game Over"},
-            action_description="Trò chơi kết thúc! Police đã bắt được Thief." if police_pos == thief_pos else "Thief đã trốn thoát!"
-        ))
-        return history
+        # Cột P2
+        self.f2 = self.create_side_panel(main, "GOAL CỦA MÁY", PuzzleEnv.GOAL2, "#ef476f")
+        self.f2.pack(side=tk.LEFT, fill=tk.Y, padx=10)
+
+    def create_side_panel(self, parent, title, goal, color):
+        f = tk.Frame(parent, bg="#2b2b36", padx=10, pady=10)
+        tk.Label(f, text=title, fg=color, bg="#2b2b36", font=("Arial", 10, "bold")).pack()
+        cv = tk.Canvas(f, width=120, height=120, bg="black", highlightthickness=0)
+        cv.pack(pady=5)
+        for i, val in enumerate(goal):
+            if val == 0: continue
+            r, c = divmod(i, 4)
+            cv.create_rectangle(c*30+2, r*30+2, c*30+28, r*30+28, fill=color, outline="")
+            cv.create_text(c*30+15, r*30+15, text=str(val), fill="white", font=("Arial", 8))
+        
+        tk.Label(f, text="AI Frontier:", fg="white", bg="#2b2b36").pack(anchor="w")
+        lb = tk.Listbox(f, width=25, height=10, bg="#1e1e24", fg="white")
+        lb.pack(fill=tk.BOTH, expand=True)
+        setattr(f, 'listbox', lb)
+        return f
+
+    def on_click(self, event):
+        if self.move_count >= self.MAX_MOVES: return
+        c, r = event.x // 100, event.y // 100
+        if not (0 <= c < 4 and 0 <= r < 4): return
+        
+        idx = r * 4 + c
+        zero_idx = self.state.index(0)
+        if abs(idx//4 - zero_idx//4) + abs(idx%4 - zero_idx%4) == 1:
+            s_list = list(self.state)
+            s_list[idx], s_list[zero_idx] = s_list[zero_idx], s_list[idx]
+            new_state = tuple(s_list)
+            if new_state == self.last_state: return 
+            
+            self.last_state = self.state
+            self.state = new_state
+            self.move_count += 1
+            self.update_status()
+            self.draw_all()
+            if self.move_count >= self.MAX_MOVES: self.game_over()
+            else: self.win.after(300, self.ai_turn)
+
+    def ai_turn(self):
+        new_state, frontier = self.ai.get_move(self.state, self.last_state, PuzzleEnv.GOAL2)
+        if new_state:
+            self.last_state = self.state
+            self.state = new_state
+            self.move_count += 1
+            self.update_status()
+        self.update_frontier(frontier)
+        self.draw_all()
+        if self.move_count >= self.MAX_MOVES: self.game_over()
+
+    def update_frontier(self, frontier):
+        self.f2.listbox.delete(0, tk.END)
+        for move in frontier: self.f2.listbox.insert(tk.END, str(move)[:15] + "...")
+
+    def update_status(self):
+        self.lbl_status.config(text=f"Bước: {self.move_count}/{self.MAX_MOVES}")
+
+    def game_over(self):
+        mis1 = PuzzleEnv.count_misplaced(self.state, PuzzleEnv.GOAL1)
+        mis2 = PuzzleEnv.count_misplaced(self.state, PuzzleEnv.GOAL2)
+        messagebox.showinfo("Kết quả", f"Hết 50 bước!\n\nSố ô sai của bạn: {mis1}\nSố ô sai của máy: {mis2}")
+
+    def draw_all(self):
+        self.cv.delete("all")
+        for i, val in enumerate(self.state):
+            if val == 0: continue
+            r, c = divmod(i, 4)
+            self.cv.create_rectangle(c*100+5, r*100+5, c*100+95, r*100+95, fill="#4a4e69", outline="")
+            self.cv.create_text(c*100+50, r*100+50, text=str(val), fill="white", font=("Arial", 20, "bold"))
+        self.cv.update()
+
+    def reset_game(self):
+        arr = list(range(16)); random.shuffle(arr); self.state = tuple(arr)
+        self.last_state = None; self.move_count = 0
+        self.update_status()
+        if hasattr(self, 'cv'): self.draw_all()
+
+def open_ui(root, algo_name):
+    AdversarialUI(root, algo_name)
