@@ -237,6 +237,11 @@ class PuzzleUI:
         ]
         for txt,cmd,clr in btns:
             tk.Button(f,text=txt,font=("Segoe UI",11,"bold"),bg=clr,fg=TEXT if clr!=GREEN else "#000",relief="flat",padx=18,pady=8,cursor="hand2",command=cmd).pack(side=tk.LEFT,padx=10)
+            
+        self.btn_auto = tk.Button(f, text="Tự chạy ⏯", font=("Segoe UI", 11, "bold"), bg="#5a189a", fg=TEXT, relief="flat", padx=18, pady=8, cursor="hand2", command=self.toggle_auto_play)
+        self.btn_auto.pack(side=tk.LEFT, padx=10)
+        self.auto_playing = False
+        
         self.lbl_step=tk.Label(f,text="",font=("Segoe UI",12,"bold"),bg=PANEL,fg=YELLOW); self.lbl_step.pack(side=tk.RIGHT,padx=20)
 
     # ===== DISPLAY =====
@@ -296,10 +301,14 @@ class PuzzleUI:
     # ===== ACTIONS =====
     def do_input(self):
         def cb(board):
+            self.auto_playing = False
+            if hasattr(self, 'btn_auto'): self.btn_auto.config(text="Tự chạy ⏯", bg="#5a189a")
             self.board=[r[:] for r in board]; self.steps=[]; self.visited=[]; self.step_idx=-1; self.draw_initial()
         input_dialog(self.win,cb)
 
     def do_solve(self):
+        self.auto_playing = False
+        if hasattr(self, 'btn_auto'): self.btn_auto.config(text="Tự chạy ⏯", bg="#5a189a")
         if not self.algo:
             messagebox.showwarning("Chưa chọn","Vui lòng chọn thuật toán trước!",parent=self.win); return
         fn=ALGOS[self.algo]; state=S(self.board)
@@ -314,6 +323,23 @@ class PuzzleUI:
 
     def do_next(self):
         if self.step_idx<len(self.steps)-1: self.show_step(self.step_idx+1)
+
+    def toggle_auto_play(self):
+        if not self.steps: return
+        self.auto_playing = not self.auto_playing
+        if self.auto_playing:
+            self.btn_auto.config(text="Dừng ⏸", bg=RED)
+            self.run_auto_step()
+        else:
+            self.btn_auto.config(text="Tự chạy ⏯", bg="#5a189a")
+
+    def run_auto_step(self):
+        if self.auto_playing and self.step_idx < len(self.steps) - 1:
+            self.do_next()
+            self.win.after(800, self.run_auto_step)
+        elif self.step_idx >= len(self.steps) - 1:
+            self.auto_playing = False
+            self.btn_auto.config(text="Tự chạy ⏯", bg="#5a189a")
 
 def open_ui(parent, algo_name):
     PuzzleUI(parent, algo_name)
