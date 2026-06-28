@@ -1,211 +1,285 @@
-import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import heapq
-from base_algorithm import BaseAlgorithm, State
-from heuristic import heuristic
+import tkinter as tk
+from tkinter import messagebox
 
+# ===== THEME CHUẨN CỦA NHÓM =====
+BG = "#1a1a2e"
+PANEL = "#16213e"
+CARD = "#0f3460"
+TEXT = "#e6e6e6"
+SUB = "#8d99ae"
+ACCENT = "#00d4ff"
+BTN = "#3a86ff"
+BTN_H = "#2a75e6"
+BTN_SEL = "#e63946"
+CELL = "#3d5a80"
+CELL_E = "#0e0e1a"
+GREEN = "#06d6a0"
+RED = "#ef476f"
+YELLOW = "#ffd166"
 
-class GreedySearch(BaseAlgorithm):
-    """
-    Thuật toán Tìm kiếm Tham lam (Greedy Best-First Search).
-    Thuật toán này chỉ xem xét chi phí ước tính h(n) từ nút hiện tại đến đích để quyết định nút tiếp theo.
-    Police luôn chọn bước đi trông có vẻ gần Thief nhất — nhanh nhưng không đảm bảo đường đi là tối ưu nhất.
-    """
-    def run(self, environment, start: tuple, target: tuple):
-        history = []
+# Danh sách thuật toán để map với UI
+# Giả sử bạn đã import các class thuật toán: GreedySearch, AStar, IDAStar
+ALGOS_PATHFINDING = {
+    "Greedy Search": GreedySearch,
+    "A* Search": AStar,
+    "IDA* Search": IDAStar
+}
 
-        # Hàng đợi ưu tiên (Priority Queue) sẽ luôn bật ra phần tử có giá trị h(n) thấp nhất trước tiên.
-        pq = [(heuristic(start, target), [start])]
-        explored = set([start])
-
-        while pq:
-            h_cost, path = heapq.heappop(pq)
-            node = path[-1]
-
-            history.append(State(
-                frontier=[p[-1] for _, p in pq],
-                explored=explored.copy(),
-                current_path=path,
-                hud_metrics={
-                    "Current Algorithm": "Greedy Search",
-                    "h(n)": f"{h_cost:.1f}",
-                    "Nodes Explored": str(len(explored))
-                },
-                action_description=f"Duyệt tọa độ {node} với h(n) = {h_cost:.1f}."
-            ))
-
-            if node == target:
-                history.append(State(
-                    frontier=[],
-                    explored=explored.copy(),
-                    current_path=path,
-                    hud_metrics={
-                        "Current Algorithm": "Greedy Search",
-                        "h(n)": "0.0",
-                        "Nodes Explored": str(len(explored))
-                    },
-                    action_description=f"Police đã bắt được Thief tại {target}!"
-                ))
-                break
-
-            for neighbor in environment.get_neighbors(node[0], node[1]):
-                if neighbor not in explored:
-                    explored.add(neighbor)
-                    new_path = list(path)
-                    new_path.append(neighbor)
-                    heapq.heappush(pq, (heuristic(neighbor, target), new_path))
-
-        return history
-
-class AStar(BaseAlgorithm):
-    """
-    Thuật toán A* (A-Star Search).
-    Sử dụng kết hợp chi phí thực tế đã đi qua g(n) và chi phí ước tính đến đích h(n) thành hàm f(n) = g(n) + h(n).
-    Police luôn tìm ra con đường tối ưu nhất để bắt Thief nếu hàm heuristic thỏa mãn điều kiện admissible.
-    """
-    def run(self, environment, start: tuple, target: tuple):
-        history = []
-
-        # Priority queue so sánh theo thứ tự: f_cost trước, nếu bằng nhau thì g_cost.
-        pq = [(heuristic(start, target), 0, [start])]
-
-        # Bảng tra g_costs nhằm lưu lại con đường rẻ nhất để đi đến một nút,
-        # giúp nhanh chóng cắt tỉa những nhánh có g(n) lớn hơn.
-        g_costs = {start: 0}
-        explored = set()
-
-        while pq:
-            f_cost, g_cost, path = heapq.heappop(pq)
-            node = path[-1]
-
-            if node in explored and g_cost > g_costs.get(node, float('inf')):
-                continue
-
-            explored.add(node)
-            h_cost = f_cost - g_cost
-
-            history.append(State(
-                frontier=[p[-1] for _, _, p in pq],
-                explored=explored.copy(),
-                current_path=path,
-                hud_metrics={
-                    "Current Algorithm": "A* Search",
-                    "f(n)": f"{f_cost:.1f}",
-                    "g(n)": f"{g_cost}",
-                    "h(n)": f"{h_cost:.1f}",
-                    "Nodes Explored": str(len(explored))
-                },
-                action_description=f"Duyệt {node} với f(n) = {f_cost:.1f}."
-            ))
-
-            if node == target:
-                history.append(State(
-                    frontier=[],
-                    explored=explored.copy(),
-                    current_path=path,
-                    hud_metrics={
-                        "Current Algorithm": "A* Search",
-                        "f(n)": f"{f_cost:.1f}",
-                        "Nodes Explored": str(len(explored))
-                    },
-                    action_description=f"Police đã tìm ra con đường tối ưu và bắt được Thief tại {target}!"
-                ))
-                break
-
-            for neighbor in environment.get_neighbors(node[0], node[1]):
-                new_g_cost = g_cost + environment.get_cost(neighbor[0], neighbor[1])
-
-                if new_g_cost < g_costs.get(neighbor, float('inf')):
-                    g_costs[neighbor] = new_g_cost
-                    new_f_cost = new_g_cost + heuristic(neighbor, target)
-                    new_path = list(path)
-                    new_path.append(neighbor)
-                    heapq.heappush(pq, (new_f_cost, new_g_cost, new_path))
-
-        return history
+class PathfindingUI:
+    def __init__(self, parent, environment, start_pos, target_pos, algo_name="A* Search"):
+        """
+        Giao diện mô phỏng thuật toán tìm kiếm đường đi.
+        :param environment: Đối tượng môi trường (bản đồ, vật cản...)
+        :param start_pos: Tuple tọa độ ban đầu (Police)
+        :param target_pos: Tuple tọa độ đích (Thief)
+        """
+        self.parent = parent
+        if parent: parent.withdraw()
         
-class IDAStar(BaseAlgorithm):
-    """
-    Thuật toán IDA* (Iterative Deepening A*).
-    Kết hợp cơ chế lặp độ sâu của IDS với sự định hướng ưu việt của A*.
-    Bảo toàn tính tối ưu của A* trong khi giải quyết triệt để bài toán rò rỉ bộ nhớ (memory overhead).
-    Police truy đuổi Thief theo từng vòng lặp với ngưỡng f(n) tăng dần.
-    """
-    def run(self, environment, start: tuple, target: tuple):
-        history = []
+        self.win = tk.Toplevel(parent) if parent else tk.Tk()
+        self.win.title("Nhóm 3: Tìm kiếm có thông tin - Truy bắt Thief")
+        self.win.geometry("1350x780")
+        self.win.configure(bg=BG)
+        self.win.minsize(1200, 700)
+        self.win.protocol("WM_DELETE_WINDOW", self.on_close)
+        
+        # Dữ liệu bài toán
+        self.env = environment
+        self.start = start_pos
+        self.target = target_pos
+        
+        # State quản lý UI
+        self.algo_name = algo_name
+        self.history = []
+        self.step_idx = -1
+        self.algo_btns = {}
+        self.auto_playing = False
+        
+        # Tọa độ grid logic (Giả sử bản đồ kích thước 20x20 để vẽ grid)
+        self.grid_rows = 20
+        self.grid_cols = 20
+        
+        # Xây dựng giao diện
+        self._build_top()
+        self._build_middle()
+        self._build_bottom()
+        
+        if algo_name:
+            self.select_algo(algo_name)
+            
+        self.draw_initial()
 
-        # Ngưỡng ban đầu (threshold) chính là khoảng cách lý thuyết h(n) từ nút bắt đầu tới đích.
-        threshold = heuristic(start, target)
-        explored_total = set()
+    def on_close(self):
+        self.win.destroy()
+        if self.parent: self.parent.deiconify()
 
-        while True:
-            stack = [([start], 0)]
+    def _build_top(self):
+        f = tk.Frame(self.win, bg=PANEL, pady=8)
+        f.pack(fill=tk.X, padx=0)
+        tk.Label(f, text="NHÓM 3: TÌM KIẾM CÓ THÔNG TIN (HEURISTIC)", font=("Segoe UI", 14, "bold"), bg=PANEL, fg=ACCENT).pack(side=tk.LEFT, padx=20)
+        
+        bb = tk.Button(f, text="◀ Quay lại", font=("Segoe UI", 10, "bold"), bg=RED, fg=TEXT, relief="flat", padx=12, pady=4, cursor="hand2", command=self.on_close)
+        bb.pack(side=tk.RIGHT, padx=15)
+        
+        for name in reversed(list(ALGOS_PATHFINDING.keys())):
+            b = tk.Button(f, text=name, font=("Segoe UI", 10), bg="#444455", fg=TEXT, relief="flat", padx=12, pady=4, cursor="hand2",
+                          command=lambda n=name: self.select_algo(n))
+            b.pack(side=tk.RIGHT, padx=4)
+            self.algo_btns[name] = b
 
-            # Biến lưu trữ ngưỡng nhỏ nhất vượt qua threshold ở vòng lặp hiện tại,
-            # làm cơ sở cho ngưỡng (threshold) của vòng lặp tiếp theo.
-            min_exceeded_f = float('inf')
-            found = False
-            visited_g = {}
+    def select_algo(self, name):
+        self.algo_name = name
+        for n, b in self.algo_btns.items():
+            if n == name: b.config(bg=BTN_SEL)
+            else: b.config(bg="#444455")
 
-            while stack:
-                path, g_cost = stack.pop()
-                node = path[-1]
+    def _build_middle(self):
+        mf = tk.Frame(self.win, bg=BG)
+        mf.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        # Cột Trái: Lưới (Grid) mô phỏng môi trường
+        cf = tk.Frame(mf, bg=CARD, highlightbackground="#2a3a5c", highlightthickness=1)
+        cf.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
+        tk.Label(cf, text="MÔ PHỎNG MÔI TRƯỜNG", font=("Segoe UI", 11, "bold"), bg=CARD, fg=ACCENT).pack(pady=(10, 5))
+        
+        self.cv_grid = tk.Canvas(cf, bg=CELL_E, highlightthickness=0)
+        self.cv_grid.pack(fill=tk.BOTH, expand=True, padx=15, pady=15)
+        
+        # Cột Phải: HUD Metrics & Action Description
+        rf = tk.Frame(mf, bg=BG)
+        rf.pack(side=tk.LEFT, fill=tk.BOTH, padx=(5, 0))
+        rf.config(width=350)
+        rf.pack_propagate(False)
+        
+        # Bảng HUD Metrics
+        vf = tk.Frame(rf, bg=CARD, highlightbackground="#2a3a5c", highlightthickness=1)
+        vf.pack(fill=tk.BOTH, expand=True, pady=(0, 5))
+        tk.Label(vf, text="HUD METRICS", font=("Segoe UI", 10, "bold"), bg=CARD, fg=ACCENT).pack(pady=(8, 5))
+        
+        self.metrics_frame = tk.Frame(vf, bg=CARD)
+        self.metrics_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=5)
+        self.lbl_metrics = []
+        
+        # Giải thích thao tác
+        ef = tk.Frame(rf, bg=CARD, highlightbackground="#2a3a5c", highlightthickness=1, height=150)
+        ef.pack(fill=tk.X, pady=(5, 0))
+        ef.pack_propagate(False)
+        tk.Label(ef, text="HÀNH ĐỘNG CỦA POLICE", font=("Segoe UI", 10, "bold"), bg=CARD, fg=ACCENT).pack(pady=(8, 2))
+        self.txt_exp = tk.Text(ef, bg=CARD, fg=YELLOW, font=("Segoe UI", 11, "bold"), wrap=tk.WORD, relief="flat", padx=10, pady=5, insertbackground=TEXT, state=tk.DISABLED)
+        self.txt_exp.pack(fill=tk.BOTH, expand=True, padx=5, pady=(0, 5))
 
-                f_cost = g_cost + heuristic(node, target)
+    def _build_bottom(self):
+        f = tk.Frame(self.win, bg=PANEL, pady=10)
+        f.pack(fill=tk.X)
+        
+        btns = [
+            ("▶ Giải ngay", self.do_solve, GREEN),
+            ("◀◀ Bước trước", self.do_prev, BTN),
+            ("Bước sau ▶▶", self.do_next, BTN),
+        ]
+        
+        for txt, cmd, clr in btns:
+            tk.Button(f, text=txt, font=("Segoe UI", 11, "bold"), bg=clr, fg=TEXT if clr != GREEN else "#000", relief="flat", padx=18, pady=8, cursor="hand2", command=cmd).pack(side=tk.LEFT, padx=10)
+            
+        self.btn_auto = tk.Button(f, text="Tự chạy ⏯", font=("Segoe UI", 11, "bold"), bg="#5a189a", fg=TEXT, relief="flat", padx=18, pady=8, cursor="hand2", command=self.toggle_auto_play)
+        self.btn_auto.pack(side=tk.LEFT, padx=10)
+        
+        self.lbl_step = tk.Label(f, text="Chưa bắt đầu", font=("Segoe UI", 12, "bold"), bg=PANEL, fg=YELLOW)
+        self.lbl_step.pack(side=tk.RIGHT, padx=20)
 
-                # Cắt tỉa nhánh: nếu hàm ước tính vượt quá giới hạn đang quét, bỏ qua và lưu ngưỡng lại.
-                if f_cost > threshold:
-                    min_exceeded_f = min(min_exceeded_f, f_cost)
-                    continue
+    # ===== HIỂN THỊ TRẠNG THÁI (DRAWING) =====
+    def _draw_grid_state(self, state=None):
+        self.cv_grid.delete("all")
+        cv_w = self.cv_grid.winfo_width()
+        cv_h = self.cv_grid.winfo_height()
+        
+        # Chỉ vẽ khi Canvas đã load (tránh size = 1)
+        if cv_w <= 1 or cv_h <= 1:
+            self.win.after(100, lambda: self._draw_grid_state(state))
+            return
 
-                # Loại bỏ việc duyệt trùng lặp nếu đi đến cùng một nút với chi phí cao hơn hoặc bằng.
-                if node in visited_g and visited_g[node] <= g_cost:
-                    continue
-                visited_g[node] = g_cost
+        cs = min(cv_w // self.grid_cols, cv_h // self.grid_rows)
+        ox = (cv_w - cs * self.grid_cols) // 2
+        oy = (cv_h - cs * self.grid_rows) // 2
 
-                explored_total.add(node)
+        # Lấy data từ state (nếu có)
+        explored = state.explored if state else set()
+        frontier = state.frontier if state else []
+        path = state.current_path if state else []
 
-                history.append(State(
-                    frontier=[p[-1] for p, _ in stack],
-                    explored=explored_total.copy(),
-                    current_path=path,
-                    hud_metrics={
-                        "Current Algorithm": "IDA* Search",
-                        "Threshold f(n)": f"{threshold:.1f}",
-                        "Current f(n)": f"{f_cost:.1f}",
-                        "Nodes Explored": str(len(explored_total))
-                    },
-                    action_description=f"IDA* duyệt {node} (f={f_cost:.1f}, Ngưỡng={threshold:.1f})."
-                ))
+        # Vẽ lưới
+        for r in range(self.grid_rows):
+            for c in range(self.grid_cols):
+                x1, y1 = ox + c * cs, oy + r * cs
+                x2, y2 = x1 + cs, y1 + cs
+                
+                node = (r, c)
+                color = CELL_E
+                
+                if node in explored:
+                    color = CELL       # Đã duyệt
+                elif node in frontier:
+                    color = "#2a9d8f"  # Đang chờ duyệt (Màu teal nhạt)
+                
+                # Vẽ ô
+                self.cv_grid.create_rectangle(x1, y1, x2, y2, fill=color, outline="#16213e")
 
-                if node == target:
-                    history.append(State(
-                        frontier=[],
-                        explored=explored_total.copy(),
-                        current_path=path,
-                        hud_metrics={
-                            "Current Algorithm": "IDA* Search",
-                            "Threshold f(n)": f"{threshold:.1f}",
-                            "Nodes Explored": str(len(explored_total))
-                        },
-                        action_description=f"Police bắt được Thief tại {target} ở vòng ngưỡng f(n)={threshold:.1f}!"
-                    ))
-                    found = True
-                    break
+        # Vẽ đường đi hiện tại (Path)
+        if len(path) > 1:
+            points = [(ox + p[1] * cs + cs/2, oy + p[0] * cs + cs/2) for p in path]
+            self.cv_grid.create_line(*points, fill=GREEN, width=3, dash=(4, 2))
 
-                for neighbor in environment.get_neighbors(node[0], node[1]):
-                    if neighbor not in path:
-                        new_path = list(path)
-                        new_path.append(neighbor)
-                        neighbor_cost = environment.get_cost(neighbor[0], neighbor[1])
-                        stack.append((new_path, g_cost + neighbor_cost))
+        # Vẽ Start (Police) và Target (Thief)
+        for t_pos, t_color, t_text in [(self.start, BTN_SEL, "P"), (self.target, "#ffb703", "T")]:
+            if t_pos:
+                r, c = t_pos
+                x1, y1 = ox + c * cs, oy + r * cs
+                self.cv_grid.create_oval(x1+4, y1+4, x1+cs-4, y1+cs-4, fill=t_color, outline=TEXT)
+                self.cv_grid.create_text(x1+cs/2, y1+cs/2, text=t_text, fill=TEXT, font=("Segoe UI", max(8, cs//2), "bold"))
 
-            if found:
-                break
+    def draw_initial(self):
+        self.history = []
+        self.step_idx = -1
+        self._draw_grid_state(None)
+        self._update_metrics({})
+        self.set_exp(f"Hệ thống sẵn sàng.\nThuật toán: {self.algo_name}\nNhấn 'Giải ngay' để Police bắt đầu truy tìm Thief.")
+        self.lbl_step.config(text="Chưa bắt đầu")
 
-            if min_exceeded_f == float('inf'):
-                break
+    def show_step(self, idx):
+        if idx < 0 or idx >= len(self.history): return
+        self.step_idx = idx
+        state = self.history[idx]
+        
+        self.lbl_step.config(text=f"Bước {idx+1}/{len(self.history)}")
+        
+        # Cập nhật lưới
+        self._draw_grid_state(state)
+        
+        # Cập nhật HUD Metrics
+        self._update_metrics(state.hud_metrics)
+        
+        # Cập nhật hành động
+        self.set_exp(state.action_description)
 
-            threshold = min_exceeded_f
+    def _update_metrics(self, metrics_dict):
+        # Clear bảng HUD cũ
+        for w in self.metrics_frame.winfo_children(): w.destroy()
+        
+        for k, v in metrics_dict.items():
+            row = tk.Frame(self.metrics_frame, bg=CARD)
+            row.pack(fill=tk.X, pady=4)
+            tk.Label(row, text=k + ":", font=("Segoe UI", 10), bg=CARD, fg=SUB).pack(side=tk.LEFT)
+            tk.Label(row, text=v, font=("Segoe UI", 11, "bold"), bg=CARD, fg=TEXT).pack(side=tk.RIGHT)
 
-        return history
+    def set_exp(self, text):
+        self.txt_exp.config(state=tk.NORMAL)
+        self.txt_exp.delete("1.0", tk.END)
+        self.txt_exp.insert(tk.END, text)
+        self.txt_exp.config(state=tk.DISABLED)
+
+    # ===== THAO TÁC NÚT BẤM (ACTIONS) =====
+    def do_solve(self):
+        self.auto_playing = False
+        self.btn_auto.config(text="Tự chạy ⏯", bg="#5a189a")
+        
+        if not self.algo_name:
+            messagebox.showwarning("Cảnh báo", "Vui lòng chọn thuật toán!", parent=self.win)
+            return
+            
+        AlgoClass = ALGOS_PATHFINDING[self.algo_name]
+        algo_instance = AlgoClass()
+        
+        # Chạy thuật toán và lấy history
+        self.history = algo_instance.run(self.env, self.start, self.target)
+        
+        if self.history:
+            self.show_step(0)
+        else:
+            self.set_exp("Không tìm thấy đường đi nào!")
+
+    def do_prev(self):
+        if self.step_idx > 0: self.show_step(self.step_idx - 1)
+
+    def do_next(self):
+        if self.step_idx < len(self.history) - 1: self.show_step(self.step_idx + 1)
+
+    def toggle_auto_play(self):
+        if not self.history: return
+        self.auto_playing = not self.auto_playing
+        if self.auto_playing:
+            self.btn_auto.config(text="Dừng ⏸", bg=RED)
+            self.run_auto_step()
+        else:
+            self.btn_auto.config(text="Tự chạy ⏯", bg="#5a189a")
+
+    def run_auto_step(self):
+        if self.auto_playing and self.step_idx < len(self.history) - 1:
+            self.do_next()
+            self.win.after(200, self.run_auto_step) # Chỉnh tốc độ mô phỏng ở đây (200ms)
+        elif self.step_idx >= len(self.history) - 1:
+            self.auto_playing = False
+            self.btn_auto.config(text="Tự chạy ⏯", bg="#5a189a")
+
+# Để gọi giao diện này từ app chính của bạn:
+def open_pathfinding_ui(parent, environment, start_pos, target_pos, algo_name):
+    PathfindingUI(parent, environment, start_pos, target_pos, algo_name)
