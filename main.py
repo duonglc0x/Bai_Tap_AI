@@ -1,173 +1,191 @@
-import tkinter as tk
-from tkinter import messagebox
+import sys
+import os
+import random
+import pygame
 
-import group1_uninformed
-import group2_informed
-import group3_local
-import group4_complex
-import group5_csp
-import group6_adversarial
+# Đảm bảo Python luôn tìm thấy các module trong cùng thư mục với main.py
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# --- Bảng màu (Modern Dark Theme) ---
-BG_COLOR = "#1e1e24"
-FRAME_COLOR = "#2b2b36"
-TEXT_COLOR = "#ffffff"
-SUBTEXT_COLOR = "#a0a0b0"
+from environment import Environment
+from algorithms.greedy import GreedySearch
+from algorithms.astar import AStar
+from algorithms.idastar import IDAStar
+from algorithms.alpha_beta import AlphaBeta
+from algorithms.expectimax import Expectimax
 
-BTN_BG = "#3a86ff"               # Xanh dương cho nút thuật toán
-BTN_HOVER = "#2a75e6"
+from ui.renderer import UIRenderer
+from ui.widgets import Button, ComboBox
 
-GROUP_BTN_BG = "#444455"         # Xám đậm cho nút nhóm chưa chọn
-GROUP_BTN_HOVER = "#555566"
-GROUP_BTN_ACTIVE = "#e63946"     # Đỏ hồng nổi bật cho nhóm đang chọn
+ALGORITHMS = {
+    "Informed Search": ["Greedy Search", "A*", "IDA*"],
+    "Adversarial Search": ["Alpha-Beta Pruning", "Expectimax"],
+}
 
-BTN_TEXT = "#ffffff"
-BORDER_COLOR = "#444455"
+def run_simulation(algo_name: str):
+    """
+    Hàm khởi tạo môi trường và chạy trước thuật toán để lấy lịch sử các bước.
+    Trả về môi trường, lịch sử chạy và tọa độ của Thief (nếu cố định).
+    """
+    env = Environment()
 
-class HoverButton(tk.Button):
-    """Nút bấm có khả năng tuỳ chỉnh màu hover linh hoạt."""
-    def __init__(self, master, default_bg, hover_bg, **kw):
-        tk.Button.__init__(self, master=master, bg=default_bg, **kw)
-        self.defaultBackground = default_bg
-        self.hoverBackground = hover_bg
-        self.bind("<Enter>", self.on_enter)
-        self.bind("<Leave>", self.on_leave)
+    # Vị trí xuất phát của Police (trung tâm bản đồ)
+    police_start = (env.width // 2, env.height // 2)
 
-    def on_enter(self, e):
-        if self["state"] != "disabled":
-            self["background"] = self.hoverBackground
+    # Vị trí xuất hiện ngẫu nhiên của Thief
+    thief_start = (random.randint(0, env.width - 1), random.randint(0, env.height - 1))
+    while thief_start == police_start:
+        thief_start = (random.randint(0, env.width - 1), random.randint(0, env.height - 1))
 
-    def on_leave(self, e):
-        if self["state"] != "disabled":
-            self["background"] = self.defaultBackground
+    avoid_positions = [police_start, thief_start]
 
-def run_algorithm(root, group_name, algo_name):
-    if "Nhóm 1" in group_name:
-        group1_uninformed.open_ui(root, algo_name)
-    elif "Nhóm 2" in group_name:
-        group2_informed.open_ui(root, algo_name)
-    elif "Nhóm 3" in group_name:
-        group3_local.open_ui(root, algo_name)
-    elif "Nhóm 4" in group_name:
-        group4_complex.open_ui(root, algo_name)
-    elif "Nhóm 5" in group_name:
-        group5_csp.open_ui(root, algo_name)
-    elif "Nhóm 6" in group_name:
-        group6_adversarial.open_ui(root, algo_name)
-    else:
-        messagebox.showerror("Lỗi", "Không tìm thấy nhóm thuật toán tương ứng.")
+    # Sinh địa hình ngẫu nhiên
+    env.generate_terrains(
+        num_walls=30,
+        num_rough=40,
+        avoid_positions=avoid_positions
+    )
+
+    history = []
+    if algo_name == "Greedy Search":
+        history = GreedySearch().run(env, police_start, thief_start)
+    elif algo_name == "A*":
+        history = AStar().run(env, police_start, thief_start)
+    elif algo_name == "IDA*":
+        history = IDAStar().run(env, police_start, thief_start)
+    elif algo_name == "Alpha-Beta Pruning":
+        history = AlphaBeta().run(env, police_start, thief_start)
+    elif algo_name == "Expectimax":
+        history = Expectimax().run(env, police_start, thief_start)
+
+    # Nếu là thuật toán tìm kiếm đơn (không đối kháng), Thief đứng im
+    fixed_thief = None
+    if algo_name in ALGORITHMS["Informed Search"]:
+        fixed_thief = thief_start
+        
+    return env, history, fixed_thief
+
 
 def main():
-    root = tk.Tk()
-    root.title("Hệ Thống Mô Phỏng Thuật Toán AI")
-    root.geometry("1000x750")
-    root.configure(bg=BG_COLOR)
-    root.eval('tk::PlaceWindow . center')
+    """
+    Vòng lặp sự kiện đồ họa chính (Main Game Loop).
+    """
+    # 1. Khởi tạo Pygame & Renderer
+    renderer = UIRenderer(width=1600, height=900)
+    clock = pygame.time.Clock()
 
-    # --- Header ---
-    header_frame = tk.Frame(root, bg=BG_COLOR)
-    header_frame.pack(fill=tk.X, pady=(30, 10))
+    # 2. Định nghĩa cấu hình màu sắc & font cho Widget HUD
+    font = renderer.font_body
+    bg_color = (210, 205, 190)
+    hover_color = (190, 180, 160)
+    text_color = renderer.COLOR_TEXT_DARK
 
-    lbl_title = tk.Label(header_frame, text="BÀI TẬP CUỐI KỲ MÔN TRÍ TUỆ NHÂN TẠO", font=("Segoe UI", 24, "bold"), bg=BG_COLOR, fg=TEXT_COLOR)
-    lbl_title.pack()
+    # 3. Khởi tạo các Widgets điều khiển (nằm trên khu vực HUD góc phải trên cùng)
+    btn_play  = Button(1100, 40, 110, 32, "Play", font, bg_color, text_color, hover_color)
+    btn_pause = Button(1220, 40, 110, 32, "Pause", font, bg_color, text_color, hover_color)
+    btn_prev  = Button(1340, 40, 110, 32, "< Prev", font, bg_color, text_color, hover_color)
+    btn_next  = Button(1460, 40, 110, 32, "Next >", font, bg_color, text_color, hover_color)
 
-    lbl_subtitle = tk.Label(header_frame, text="Vui lòng chọn một nhóm thuật toán ở trên", font=("Segoe UI", 12), bg=BG_COLOR, fg=SUBTEXT_COLOR)
-    lbl_subtitle.pack(pady=(5, 0))
-
-    algorithm_groups = {
-        "Nhóm 1: Tìm kiếm mù": ["Breadth-First Search (BFS)", "Depth-First Search (DFS)", "Iterative Deepening Search (IDS)"],
-        "Nhóm 2: Tìm kiếm có thông tin": ["Greedy Search", "A* Search", "IDA*"],
-        "Nhóm 3: Tìm kiếm cục bộ": ["Simple Hill Climbing", "Stochastic Hill Climbing", "Local Beam"],
-        "Nhóm 4: Môi trường phức tạp": ["AND-OR Search", "No Observation", "Partially Observable"],
-        "Nhóm 5: Thoả mãn ràng buộc": ["Backtracking", "Forward Checking", "Min-Conflicts"],
-        "Nhóm 6: Tìm kiếm đối kháng": ["Minimax", "Alpha-Beta Pruning", "Expectimax"]
-    }
-
-    # --- Khu vực chứa danh sách nhóm (Nửa trên) ---
-    groups_frame = tk.Frame(root, bg=BG_COLOR)
-    groups_frame.pack(fill=tk.X, padx=40, pady=10)
+    cat_list = list(ALGORITHMS.keys())
+    combo_cat = ComboBox(1100, 90, 180, 32, cat_list, font, bg_color, text_color)
+    combo_algo = ComboBox(1300, 90, 220, 32, ALGORITHMS[cat_list[0]], font, bg_color, text_color)
     
-    # Cấu hình grid 3 cột đều nhau
-    for i in range(3):
-        groups_frame.columnconfigure(i, weight=1)
+    # Nút chạy thuật toán màu xanh nổi bật
+    btn_run = Button(1530, 90, 90, 32, "RUN", font, (100, 200, 100), (0, 0, 0), (80, 180, 80))
 
-    # --- Khu vực chứa danh sách thuật toán (Nửa dưới) ---
-    algos_frame = tk.Frame(root, bg=FRAME_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=20, pady=20)
+    # 4. Trạng thái chạy ứng dụng ban đầu
+    current_algo = combo_algo.get_selected()
+    env, history, fixed_thief = run_simulation(current_algo)
     
-    lbl_algo_title = tk.Label(algos_frame, text="", font=("Segoe UI", 16, "bold"), bg=FRAME_COLOR, fg=TEXT_COLOR)
-    lbl_algo_title.pack(pady=(0, 15))
+    current_step = 0
+    total_steps = len(history)
+    is_playing = False
+    
+    delay = 200  # Độ trễ giữa các khung hình (ms)
+    last_update_time = pygame.time.get_ticks()
 
-    btn_container = tk.Frame(algos_frame, bg=FRAME_COLOR)
-    btn_container.pack(fill=tk.BOTH, expand=True)
+    running = True
+    while running:
+        # --- XỬ LÝ SỰ KIỆN (Event Handling) ---
+        events = pygame.event.get()
+        for event in events:
+            if event.type == pygame.QUIT:
+                running = False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    running = False
 
-    group_buttons = []
-
-    def show_algorithms(group_name):
-        # Đổi màu highlight cho nút nhóm đang chọn, reset các nút khác
-        for btn, name in group_buttons:
-            if name == group_name:
-                btn.config(bg=GROUP_BTN_ACTIVE)
-                btn.defaultBackground = GROUP_BTN_ACTIVE
-                btn.hoverBackground = GROUP_BTN_ACTIVE # Không đổi màu khi hover vào mục đang chọn
+            # Xử lý Widget: Ưu tiên xử lý ComboBox trước (để bắt sự kiện click trong dropdown)
+            cat_changed = False
+            if combo_cat.is_expanded:
+                cat_changed = combo_cat.handle_event(event)
+            elif combo_algo.is_expanded:
+                combo_algo.handle_event(event)
             else:
-                btn.config(bg=GROUP_BTN_BG)
-                btn.defaultBackground = GROUP_BTN_BG
-                btn.hoverBackground = GROUP_BTN_HOVER
+                cat_changed = combo_cat.handle_event(event)
+                combo_algo.handle_event(event)
 
-        # Cập nhật tiêu đề thuật toán
-        lbl_algo_title.config(text=f"Các thuật toán trong {group_name}")
-        lbl_subtitle.config(text="Chọn thuật toán để xem mô phỏng")
+                # Nút bấm điều khiển quá trình (Playback Controls)
+                if btn_play.handle_event(event):
+                    is_playing = True
+                if btn_pause.handle_event(event):
+                    is_playing = False
+                if btn_prev.handle_event(event):
+                    is_playing = False
+                    current_step = max(0, current_step - 1)
+                if btn_next.handle_event(event):
+                    is_playing = False
+                    current_step = min(total_steps - 1, current_step + 1)
+                
+                # Chạy lại thuật toán được chọn
+                if btn_run.handle_event(event):
+                    current_algo = combo_algo.get_selected()
+                    env, history, fixed_thief = run_simulation(current_algo)
+                    current_step = 0
+                    total_steps = len(history)
+                    is_playing = True
 
-        # Xóa các nút thuật toán cũ
-        for widget in btn_container.winfo_children():
-            widget.destroy()
+            # Cập nhật thuật toán xổ xuống nếu thay đổi Danh mục (Category)
+            if cat_changed:
+                combo_algo.update_options(ALGORITHMS[combo_cat.get_selected()])
 
-        # Tạo danh sách các nút thuật toán mới
-        algos = algorithm_groups[group_name]
-        for algo in algos:
-            btn = HoverButton(
-                btn_container,
-                default_bg=BTN_BG,
-                hover_bg=BTN_HOVER,
-                text=algo,
-                font=("Segoe UI", 13),
-                fg=BTN_TEXT,
-                relief="flat",
-                cursor="hand2",
-                pady=12,
-                command=lambda g=group_name, a=algo: run_algorithm(root, g, a)
-            )
-            btn.pack(fill=tk.X, pady=8, padx=40)
+        # --- LOGIC PHÁT (Auto Play) ---
+        current_time = pygame.time.get_ticks()
+        if is_playing and current_time - last_update_time > delay:
+            if current_step < total_steps - 1:
+                current_step += 1
+            else:
+                is_playing = False # Dừng lại khi tới cuối lịch sử
+            last_update_time = current_time
 
-        # Hiển thị algos_frame nếu chưa hiển thị
-        algos_frame.pack(fill=tk.BOTH, expand=True, padx=40, pady=(10, 40))
+        # --- KẾT XUẤT ĐỒ HỌA (Rendering) ---
+        if history and current_step < len(history):
+            state = history[current_step]
+            # Gọi hàm vẽ toàn bộ Grid, Terrain, Entity và Bảng số liệu HUD
+            renderer.draw_frame(state, env.grid, current_step, total_steps, fixed_thief, history)
+        else:
+            renderer.screen.fill(renderer.COLOR_MAP_BG)
 
-    # --- Render các nút nhóm ---
-    row_idx = 0
-    col_idx = 0
-    for group_name in algorithm_groups.keys():
-        btn = HoverButton(
-            groups_frame,
-            default_bg=GROUP_BTN_BG,
-            hover_bg=GROUP_BTN_HOVER,
-            text=group_name,
-            font=("Segoe UI", 11, "bold"),
-            fg=BTN_TEXT,
-            relief="flat",
-            cursor="hand2",
-            pady=15
-        )
-        # Gắn sự kiện show_algorithms
-        btn.config(command=lambda g=group_name: show_algorithms(g))
-        btn.grid(row=row_idx, column=col_idx, padx=10, pady=10, sticky="nsew")
-        group_buttons.append((btn, group_name))
+        # Vẽ đè các Widgets lên trên bảng HUD
+        btn_play.draw(renderer.screen)
+        btn_pause.draw(renderer.screen)
+        btn_prev.draw(renderer.screen)
+        btn_next.draw(renderer.screen)
+        btn_run.draw(renderer.screen)
 
-        col_idx += 1
-        if col_idx > 2:
-            col_idx = 0
-            row_idx += 1
+        # LƯU Ý: Vẽ ComboBox sau cùng. Cần vẽ ngược (từ trái qua phải, từ dưới lên trên) 
+        # để danh sách dropdown của nó có thể đè đè lên các widget phía dưới.
+        combo_algo.draw_main_box(renderer.screen)
+        combo_algo.draw_dropdown(renderer.screen)
 
-    root.mainloop()
+        combo_cat.draw_main_box(renderer.screen)
+        combo_cat.draw_dropdown(renderer.screen)
+
+        pygame.display.flip()
+        clock.tick(60) # Khóa tốc độ ở 60 FPS
+
+    pygame.quit()
+    sys.exit()
 
 if __name__ == "__main__":
+    print("[INFO] Bắt đầu khởi động Giao diện Đồ họa...")
     main()
