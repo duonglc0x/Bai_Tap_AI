@@ -1,24 +1,58 @@
-import tkinter as tk
-from tkinter import ttk
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import heapq
+from base_algorithm import BaseAlgorithm, State
+from heuristic import heuristic
 
-def open_ui(parent, algo_name):
-    parent.withdraw()
-    
-    window = tk.Toplevel(parent)
-    window.title(f"Tìm kiếm có thông tin - {algo_name}")
-    window.geometry("600x400")
-    
-    lbl = ttk.Label(window, text=f"Thuật toán: {algo_name}", font=("Helvetica", 16, "bold"))
-    lbl.pack(pady=20)
-    
-    info_lbl = ttk.Label(window, text="Đây là giao diện của Nhóm 2: Tìm kiếm có thông tin (Heuristic).\nBạn có thể thêm các control ở đây.", justify="center")
-    info_lbl.pack(pady=10)
-    
-    def on_close():
-        window.destroy()
-        parent.deiconify()
-        
-    window.protocol("WM_DELETE_WINDOW", on_close)
-    
-    btn_back = ttk.Button(window, text="Quay lại Menu", command=on_close)
-    btn_back.pack(pady=20)
+
+class GreedySearch(BaseAlgorithm):
+    """
+    Thuật toán Tìm kiếm Tham lam (Greedy Best-First Search).
+    Thuật toán này chỉ xem xét chi phí ước tính h(n) từ nút hiện tại đến đích để quyết định nút tiếp theo.
+    Police luôn chọn bước đi trông có vẻ gần Thief nhất — nhanh nhưng không đảm bảo đường đi là tối ưu nhất.
+    """
+    def run(self, environment, start: tuple, target: tuple):
+        history = []
+
+        # Hàng đợi ưu tiên (Priority Queue) sẽ luôn bật ra phần tử có giá trị h(n) thấp nhất trước tiên.
+        pq = [(heuristic(start, target), [start])]
+        explored = set([start])
+
+        while pq:
+            h_cost, path = heapq.heappop(pq)
+            node = path[-1]
+
+            history.append(State(
+                frontier=[p[-1] for _, p in pq],
+                explored=explored.copy(),
+                current_path=path,
+                hud_metrics={
+                    "Current Algorithm": "Greedy Search",
+                    "h(n)": f"{h_cost:.1f}",
+                    "Nodes Explored": str(len(explored))
+                },
+                action_description=f"Duyệt tọa độ {node} với h(n) = {h_cost:.1f}."
+            ))
+
+            if node == target:
+                history.append(State(
+                    frontier=[],
+                    explored=explored.copy(),
+                    current_path=path,
+                    hud_metrics={
+                        "Current Algorithm": "Greedy Search",
+                        "h(n)": "0.0",
+                        "Nodes Explored": str(len(explored))
+                    },
+                    action_description=f"Police đã bắt được Thief tại {target}!"
+                ))
+                break
+
+            for neighbor in environment.get_neighbors(node[0], node[1]):
+                if neighbor not in explored:
+                    explored.add(neighbor)
+                    new_path = list(path)
+                    new_path.append(neighbor)
+                    heapq.heappush(pq, (heuristic(neighbor, target), new_path))
+
+        return history
