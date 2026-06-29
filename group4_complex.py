@@ -136,7 +136,7 @@ class ComplexEnvUI:
         self.cv_vis_frame = tk.Frame(cf, bg=CARD)
         self.cv_vis_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(10, 0))
         
-        self.cv_vis = tk.Canvas(self.cv_vis_frame, bg=CARD, highlightthickness=0, scrollregion=(0,0,3000,2000))
+        self.cv_vis = tk.Canvas(self.cv_vis_frame, bg=CARD, highlightthickness=0, scrollregion=(0,0,10000,2000))
         vs = tk.Scrollbar(self.cv_vis_frame, orient="vertical", command=self.cv_vis.yview)
         hs = tk.Scrollbar(self.cv_vis_frame, orient="horizontal", command=self.cv_vis.xview)
         self.cv_vis.configure(yscrollcommand=vs.set, xscrollcommand=hs.set)
@@ -299,6 +299,7 @@ class ComplexEnvUI:
             
     def draw_up_to_current_step(self):
         self.cv_vis.delete("all")
+        
         # Mỗi "step" trong self.steps_data chứa 1 danh sách các lệnh vẽ (ví dụ: vẽ 1 node và các đường nối)
         for i in range(self.current_step):
             step_draw_cmds = self.steps_data[i]
@@ -472,15 +473,15 @@ class ComplexEnvUI:
 
     def get_frontier_draw_cmds(self, frontier_beliefs, ox, oy):
         cmds = []
-        cmds.append(("line", [50, oy - 25, 2000, oy - 25], {"fill": "#444455", "width": 1, "dash": (4, 4)}))
-        cmds.append(("text", [170, oy - 40], {"text": "BIÊN TÌM KIẾM (FRONTIER - HÀNG ĐỢI QUEUE)", "fill": YELLOW, "font": ("Segoe UI", 10, "bold")}))
+        cmds.append(("line", [50, oy - 25, 10000, oy - 25], {"fill": "#444455", "width": 1, "dash": (4, 4)}))
+        cmds.append(("text", [170, oy - 40], {"text": "FRONTIER)", "fill": YELLOW, "font": ("Segoe UI", 10, "bold")}))
         
         if not frontier_beliefs:
-            cmds.append(("text", [80, oy + 20], {"text": "Frontier rỗng (Đã tìm ra đích / Dừng tìm kiếm)", "fill": SUB, "font": ("Segoe UI", 9)}))
+            cmds.append(("text", [80, oy + 20], {"text": "Frontier rỗng", "fill": SUB, "font": ("Segoe UI", 9)}))
             return cmds
             
         curr_x = ox
-        limit = 6
+        limit = 50
         for idx, belief in enumerate(frontier_beliefs[:limit]):
             b_cmds, box_w, box_h = self.get_frontier_belief_cmds(belief, curr_x, oy, idx)
             cmds.extend(b_cmds)
@@ -488,8 +489,8 @@ class ComplexEnvUI:
             if idx < len(frontier_beliefs[:limit]) - 1 or len(frontier_beliefs) > limit:
                 arrow_x = curr_x + box_w
                 arrow_y = oy + box_h / 2
-                cmds.append(("line", [arrow_x + 2, arrow_y, arrow_x + 18, arrow_y], {"fill": SUB, "arrow": "last", "width": 1}))
-                curr_x = arrow_x + 20
+                cmds.append(("line", [arrow_x + 5, arrow_y, arrow_x + 45, arrow_y], {"fill": SUB, "arrow": "last", "width": 1}))
+                curr_x = arrow_x + 50
             else:
                 curr_x = curr_x + box_w
                 
@@ -501,50 +502,58 @@ class ComplexEnvUI:
     def solve_no_obs(self, start_state):
         self.log("Khởi tạo Belief State...")
         initial_belief = {start_state}
-        for n, _ in start_state.get_neighbors():
+        neighbors = start_state.get_neighbors()
+        for n, _ in neighbors[:2]:
             initial_belief.add(n)
-            
+
         initial_belief = frozenset(initial_belief)
         self.log(f"Belief State ban đầu chứa {len(initial_belief)} trạng thái.")
-        self.log("Đang chạy BFS tìm giải pháp đồng bộ...")
-        
-        from collections import deque
-        
-        # Frontier lưu trữ các BeliefNode (giữ vết nút cha)
+        self.log("Đang chạy DFS (con sắp theo |B| tăng dần → nhỏ nhất pop trước)...")
+
+        # ── DFS dùng stack (LIFO) ─────────────────────────────────────────
         initial_node = BeliefNode(initial_belief)
-        queue = deque([initial_node])
-        
-        # Để lưu trữ Frontier tại mỗi nút được lấy ra duyệt phục vụ hiển thị
-        frontier_history = {} # Ghi nhận: belief -> danh sách các belief trong hàng đợi tại thời điểm pop
-        
+        stack = [initial_node]          # list làm stack; pop/append ở cuối
+
+        frontier_history = {}           # belief → {before, after_pop, after_expand}
         visited = {initial_belief}
-        
+
         max_nodes = 5000
         nodes_expanded = 0
         nodes_generated = 0
         is_success = False
         goal_node = None
-        
+
         def is_goal_belief(belief):
             return len(belief) == 1 and next(iter(belief)).is_goal()
-            
-        while queue and nodes_expanded < max_nodes:
-            # Ghi nhận trạng thái hàng đợi TRƯỚC KHI pop node hiện tại
-            # (chuyển đổi danh sách đối tượng BeliefNode sang list of frozensets)
-            curr_node = queue[0]
+
+        while stack and nodes_expanded < max_nodes:
+            curr_node  = stack[-1]          # nhìn đỉnh stack (LIFO)
             curr_belief = curr_node.belief
-            
-            # Lưu lại trạng thái của hàng đợi (frontier) trước khi pop
-            frontier_history[curr_belief] = [node.belief for node in queue]
-            
-            queue.popleft()
+
+            # ① Snapshot TRƯỚC pop — đỉnh stack hiện tại
+            frontier_history[curr_belief] = {
+                "before": [n.belief for n in reversed(stack)]  # đỉnh trước
+            }
+
+            stack.pop()                     # pop khỏi đỉnh
             nodes_expanded += 1
-            
+
+            # ② Snapshot SAU pop, TRƯỚC khi thêm con
+            frontier_history[curr_belief]["after_pop"] = [
+                n.belief for n in reversed(stack)
+            ]
+
             if is_goal_belief(curr_belief):
                 is_success = True
-                goal_node = curr_node
+                goal_node  = curr_node
+                frontier_history[curr_belief]["after_expand"] = [
+                    n.belief for n in reversed(stack)
+                ]
                 break
-                
+
+            # Sinh con, sắp theo |belief| TĂNG DẦN
+            # Push lớn trước → nhỏ nằm ở đỉnh → pop ra trước
+            valid_children = []
             for act in ["U", "D", "L", "R"]:
                 next_states = []
                 for s in curr_belief:
@@ -556,33 +565,315 @@ class ComplexEnvUI:
                             break
                     if not moved:
                         next_states.append(s)
-                        
+
                 next_belief = frozenset(next_states)
                 nodes_generated += 1
-                
+
                 if next_belief not in visited:
-                    visited.add(next_belief)
-                    child_node = BeliefNode(next_belief, curr_node, act)
-                    queue.append(child_node)
-        
-        self.stats["expanded"] = nodes_expanded
-        self.stats["generated"] = nodes_generated
+                    valid_children.append((next_belief, act))
+
+            # sort tăng dần theo kích thước, dùng heuristic để chọn đường đi ngắn nhất khi kích thước bằng nhau
+            h_type = self.combo_heur.get()
+            valid_children.sort(key=lambda x: (len(x[0]), min(s.heuristic(h_type) for s in x[0])), reverse=True)
+
+            for next_belief, act in valid_children:
+                visited.add(next_belief)
+                child_node = BeliefNode(next_belief, curr_node, act)
+                stack.append(child_node)
+
+            # ③ Snapshot SAU khi thêm tất cả con
+            frontier_history[curr_belief]["after_expand"] = [
+                n.belief for n in reversed(stack)
+            ]
+
+        # ── Thống kê ─────────────────────────────────────────────────────
+        self.stats["expanded"]    = nodes_expanded
+        self.stats["generated"]   = nodes_generated
         self.stats["belief_size"] = len(initial_belief)
-        
+
         if not is_success:
-            self.log(f"Đã duyệt {nodes_expanded} nút trạng thái niềm tin nhưng không tìm thấy chuỗi hành động đồng bộ hóa về đích.")
-            self.log("Gợi ý: Hãy giảm số bước Shuffle xuống (ví dụ: 1 hoặc 2 bước) để tìm kiếm dễ dàng hơn.")
-            
-            # Vẫn hiển thị Belief State ban đầu để trực quan
-            curr_x = 50
-            curr_y = 200
-            b0_cmds, b0_w, b0_h = self.get_belief_state_cmds(initial_belief, curr_x, curr_y, 0, outline_color=YELLOW)
+            self.log(f"Đã duyệt {nodes_expanded} nút nhưng không tìm thấy lời giải.")
+            self.log("Gợi ý: Giảm số bước Shuffle (ví dụ 1–2 bước).")
+            b0_cmds, _, _ = self.get_belief_state_cmds(initial_belief, 50, 200, 0, outline_color=YELLOW)
             self.steps_data.append(b0_cmds)
             self.frontier_steps_data.append(self.get_frontier_draw_cmds([], 50, 480))
             self.cv_vis.xview_moveto(0.0)
             return
 
-        # Khôi phục chuỗi hành động dẫn tới Goal bằng cách lần vết parent
+        # ── Khôi phục đường đi nghiệm ────────────────────────────────────
+        path_nodes   = []
+        path_actions = []
+        curr = goal_node
+        while curr is not None:
+            path_nodes.append(curr.belief)
+            if curr.action is not None:
+                path_actions.append(curr.action)
+            curr = curr.parent
+
+        path_nodes.reverse()
+        path_actions.reverse()
+
+        self.log(f"Tìm thấy lời giải! Số bước: {len(path_actions)}")
+        self.log("Chuỗi hành động: " + " -> ".join(path_actions))
+
+        # ╔══════════════════════════════════════════════════════════════════╗
+        # ║  MỖI NÚT DFS TRÊN ĐƯỜNG ĐI = 3 BƯỚC:                          ║
+        # ║  iA : B_i ở đỉnh Stack — sắp Pop                              ║
+        # ║  iB : Pop B_i — Stack bỏ B_i, chưa có con                     ║
+        # ║  iC : Mở rộng B_i, push con (|B|↑) vào đỉnh + preview tiếp   ║
+        # ╚══════════════════════════════════════════════════════════════════╝
+
+        BASE_X    = 50
+        curr_y    = 200
+        frontier_y = 490
+        ARROW_W   = 70
+        GAP       = 12
+
+        # Tính trước vị trí & kích thước tất cả node trên path
+        node_pos = []
+        x = BASE_X
+        for i, belief in enumerate(path_nodes):
+            _, b_w, b_h = self.get_belief_state_cmds(belief, x, curr_y, i)
+            node_pos.append((x, b_w, b_h))
+            if i < len(path_nodes) - 1:
+                x = x + b_w + GAP + ARROW_W + GAP
+
+        # ── Helpers ──────────────────────────────────────────────────────
+        def arrow_cmds_for(i):
+            if i == 0:
+                return []
+            px, pw, ph = node_pos[i - 1]
+            ax_s = px + pw + GAP
+            ax_e = ax_s + ARROW_W
+            ay   = curr_y + ph // 2
+            return [
+                ("line", [ax_s, ay, ax_e, ay],
+                 {"fill": ACCENT, "width": 2, "arrow": "last"}),
+                ("text", [(ax_s + ax_e) / 2, ay - 14],
+                 {"text": path_actions[i - 1],
+                  "fill": YELLOW, "font": ("Segoe UI", 10, "bold")}),
+            ]
+
+        def cover(nx, bw, bh):
+            return ("rectangle",
+                    [nx - 6, curr_y - 66, nx + bw + 6, curr_y + bh + 6],
+                    {"fill": CARD, "outline": CARD})
+
+        def label_cover(nx, bw):
+            # Chỉ xóa dải nhãn ngay phía trên node hiện tại (không tràn sang node kề)
+            return ("rectangle",
+                    [nx - 6, curr_y - 72, nx + bw + 6, curr_y - 28],
+                    {"fill": CARD, "outline": CARD})
+
+        def step_label(nx, bw, text, color):
+            return ("text", [nx + bw / 2, curr_y - 48],
+                    {"text": text, "fill": color,
+                     "font": ("Segoe UI", 9, "bold")})
+
+        # ── Sinh bước vẽ ──────────────────────────────────────────────────
+        for i, belief in enumerate(path_nodes):
+            h = frontier_history.get(
+                belief, {"before": [], "after_pop": [], "after_expand": []})
+            nx, bw, bh = node_pos[i]
+            is_last = (i == len(path_nodes) - 1)
+            arrows  = arrow_cmds_for(i)
+            k = len(belief)
+
+            # Bước iA: B_i ở đỉnh Stack — sắp Pop ────────────────────────
+            stepA = list(arrows)
+            stepA.append(cover(nx, bw, bh))
+            b_cmds, _, _ = self.get_belief_state_cmds(belief, nx, curr_y, i, outline_color=YELLOW)
+            stepA.extend(b_cmds)
+            stepA.append(("rectangle",
+                           [nx - 4, curr_y - 4, nx + bw + 4, curr_y + bh + 4],
+                           {"outline": YELLOW, "width": 3, "dash": (6, 3)}))
+
+            self.steps_data.append(stepA)
+            self.frontier_steps_data.append(
+                self.get_frontier_draw_cmds(h.get("before", []), 50, frontier_y))
+            self.log(f"Bước {i}A: B{i} (|B|={k}) đứng đầu stack. Stack: {len(h.get('before', []))} node.")
+
+            # Bước iB: Pop B_i — Stack sau pop, chưa có con ───────────────
+            stepB = list(arrows)
+            stepB.append(cover(nx, bw, bh))
+            b_cmds, _, _ = self.get_belief_state_cmds(belief, nx, curr_y, i, outline_color=ACCENT)
+            stepB.extend(b_cmds)
+
+            self.steps_data.append(stepB)
+            self.frontier_steps_data.append(
+                self.get_frontier_draw_cmds(h.get("after_pop", []), 50, frontier_y))
+            self.log(f"")
+
+            # Bước iC: Expand xong, push con, preview node tiếp ───────────
+            stepC = list(arrows)
+            stepC.append(cover(nx, bw, bh))
+            done_color = GREEN if is_last else SUB
+            b_cmds, _, _ = self.get_belief_state_cmds(belief, nx, curr_y, i, outline_color=done_color)
+            stepC.extend(b_cmds)
+
+
+            if not is_last:
+                act_name = path_actions[i]
+                next_nx, next_bw, next_bh = node_pos[i + 1]
+                ax_s = nx + bw + GAP
+                ax_e = ax_s + ARROW_W
+                ay   = curr_y + bh // 2
+                stepC.append(("line", [ax_s, ay, ax_e, ay],
+                               {"fill": ACCENT, "width": 2, "arrow": "last"}))
+                stepC.append(("text", [(ax_s + ax_e) / 2, ay - 14],
+                               {"text": act_name,
+                                "fill": YELLOW, "font": ("Segoe UI", 10, "bold")}))
+                stepC.append(cover(next_nx, next_bw, next_bh))
+                prev_cmds, _, _ = self.get_belief_state_cmds(
+                    path_nodes[i + 1], next_nx, curr_y, i + 1,
+                    outline_color="#444466")
+                stepC.extend(prev_cmds)
+
+
+            self.steps_data.append(stepC)
+            self.frontier_steps_data.append(
+                self.get_frontier_draw_cmds(h.get("after_expand", []), 50, frontier_y))
+            self.log(f"Bước {i}C: Mở rộng B{i} xong. Stack sau expand: {len(h.get('after_expand', []))} node.")
+
+        self.cv_vis.xview_moveto(0.0)
+
+
+    def solve_partially_obs(self, start_state):
+        self.log("Khởi tạo Belief State (Partially Observable)...")
+        
+        # 1. Khởi tạo belief ban đầu (cùng 4 ô trung tâm với start_state)
+        def get_obs(state):
+            return (state.board[1][1], state.board[1][2],
+                    state.board[2][1], state.board[2][2])
+                    
+        obs_start = get_obs(start_state)
+        initial_belief_set = {start_state}
+        
+        # Tìm thêm một số trạng thái có cùng observation bằng BFS ngắn
+        q = [start_state]
+        visited_bfs = {start_state}
+        limit = 0
+        while q and len(initial_belief_set) < 3 and limit < 50:
+            curr = q.pop(0)
+            for n, _ in curr.get_neighbors():
+                if n not in visited_bfs:
+                    visited_bfs.add(n)
+                    q.append(n)
+                    if get_obs(n) == obs_start:
+                        initial_belief_set.add(n)
+            limit += 1
+            
+        initial_belief = frozenset(initial_belief_set)
+        self.log(f"Belief State ban đầu chứa {len(initial_belief)} trạng thái (cùng observation 2x2 trung tâm).")
+        self.log("Đang chạy DFS kết hợp Execution với True State...")
+
+        # ── DFS kết hợp thực thi (True State) ────────────────────────────
+        initial_node = BeliefNode(initial_belief)
+        stack = [(initial_node, start_state)]
+        
+        frontier_history = {}
+        visited = {initial_belief}
+        
+        max_nodes = 5000
+        nodes_expanded = 0
+        nodes_generated = 0
+        is_success = False
+        goal_node = None
+        
+        def is_goal_belief(belief):
+            return len(belief) == 1 and next(iter(belief)).is_goal()
+            
+        while stack and nodes_expanded < max_nodes:
+            curr_node, curr_true = stack[-1]
+            curr_belief = curr_node.belief
+            
+            frontier_history[curr_belief] = {
+                "before": [n[0].belief for n in reversed(stack)]
+            }
+            
+            stack.pop()
+            nodes_expanded += 1
+            
+            frontier_history[curr_belief]["after_pop"] = [
+                n[0].belief for n in reversed(stack)
+            ]
+            
+            if is_goal_belief(curr_belief):
+                is_success = True
+                goal_node = curr_node
+                frontier_history[curr_belief]["after_expand"] = [
+                    n[0].belief for n in reversed(stack)
+                ]
+                break
+                
+            # Sinh con
+            valid_children = []
+            for act in ["U", "D", "L", "R"]:
+                # Tính predicted belief
+                next_pred = []
+                for s in curr_belief:
+                    moved = False
+                    for neighbor, label in s.get_neighbors():
+                        if label == act:
+                            next_pred.append(neighbor)
+                            moved = True
+                            break
+                    if not moved:
+                        next_pred.append(s)
+                        
+                # Tính true state tiếp theo (mô phỏng execution)
+                next_true = curr_true
+                moved_true = False
+                for neighbor, label in curr_true.get_neighbors():
+                    if label == act:
+                        next_true = neighbor
+                        moved_true = True
+                        break
+                if not moved_true:
+                    next_true = curr_true
+                    
+                # Lấy observation thực tế sau khi move
+                actual_obs = get_obs(next_true)
+                
+                # Lọc predicted belief theo actual_obs
+                next_belief_set = set()
+                for s_prime in next_pred:
+                    if get_obs(s_prime) == actual_obs:
+                        next_belief_set.add(s_prime)
+                        
+                next_belief = frozenset(next_belief_set)
+                nodes_generated += 1
+                
+                if next_belief and next_belief not in visited:
+                    valid_children.append((next_belief, act, next_true))
+                    
+            h_type = self.combo_heur.get()
+            valid_children.sort(key=lambda x: (len(x[0]), min(s.heuristic(h_type) for s in x[0])), reverse=True)
+            
+            for next_b, act, next_t in valid_children:
+                visited.add(next_b)
+                child_node = BeliefNode(next_b, curr_node, act)
+                stack.append((child_node, next_t))
+                
+            frontier_history[curr_belief]["after_expand"] = [
+                n[0].belief for n in reversed(stack)
+            ]
+            
+        # ── Thống kê ─────────────────────────────────────────────────────
+        self.stats["expanded"] = nodes_expanded
+        self.stats["generated"] = nodes_generated
+        self.stats["belief_size"] = len(initial_belief)
+        
+        if not is_success:
+            self.log(f"Đã duyệt {nodes_expanded} nút nhưng không tìm thấy lời giải.")
+            self.log("Gợi ý: Giảm số bước Shuffle (ví dụ 1–2 bước).")
+            b0_cmds, _, _ = self.get_belief_state_cmds(initial_belief, 50, 200, 0, outline_color=YELLOW)
+            self.steps_data.append(b0_cmds)
+            self.frontier_steps_data.append(self.get_frontier_draw_cmds([], 50, 480))
+            self.cv_vis.xview_moveto(0.0)
+            return
+            
+        # ── Khôi phục đường đi ───────────────────────────────────────────
         path_nodes = []
         path_actions = []
         curr = goal_node
@@ -595,71 +886,129 @@ class ComplexEnvUI:
         path_nodes.reverse()
         path_actions.reverse()
         
-        self.log(f"Tìm thấy lời giải! Số bước hành động: {len(path_actions)}")
+        self.log(f"Tìm thấy lời giải! Số bước: {len(path_actions)}")
         self.log("Chuỗi hành động: " + " -> ".join(path_actions))
         
-        # Sinh các lệnh vẽ tích lũy từng bước để trực quan hóa
-        curr_x = 50
-        curr_y = 200
-        frontier_y = 480
-        
-        # Bước 0: Vẽ trạng thái niềm tin ban đầu
-        b0_cmds, b0_w, b0_h = self.get_belief_state_cmds(initial_belief, curr_x, curr_y, 0, outline_color=YELLOW)
-        self.steps_data.append(b0_cmds)
-        
-        f0_beliefs = frontier_history.get(initial_belief, [initial_belief])
-        self.frontier_steps_data.append(self.get_frontier_draw_cmds(f0_beliefs, 50, frontier_y))
-        
-        prev_w = b0_w
-        for idx, (b_state, act_name) in enumerate(zip(path_nodes[1:], path_actions)):
-            step_cmds = []
-            
-            # Vẽ mũi tên hướng đi
-            arrow_start_x = curr_x + prev_w + 12
-            arrow_end_x = arrow_start_x + 55
-            arrow_y = curr_y + 45
-            
-            step_cmds.append(("line", [arrow_start_x, arrow_y, arrow_end_x, arrow_y], {"fill": ACCENT, "width": 2, "arrow": "last"}))
-            step_cmds.append(("text", [(arrow_start_x + arrow_end_x)/2, arrow_y - 12], {"text": act_name, "fill": YELLOW, "font": ("Segoe UI", 10, "bold")}))
-            
-            # Vẽ Belief State tiếp theo
-            next_x = arrow_end_x + 12
-            is_goal_node = (idx == len(path_actions) - 1)
-            node_color = GREEN if is_goal_node else ACCENT
-            
-            b_cmds, b_w, b_h = self.get_belief_state_cmds(b_state, next_x, curr_y, idx + 1, outline_color=node_color)
-            step_cmds.extend(b_cmds)
-            self.steps_data.append(step_cmds)
-            
-            # Bổ sung vẽ Frontier tại bước tương ứng của cây tìm kiếm
-            curr_parent_belief = path_nodes[idx]
-            f_beliefs = frontier_history.get(curr_parent_belief, [])
-            self.log(f"Bước {idx+1}: Pop nút cha, mở rộng hành động [{act_name}]. Frontier queue hiện tại chứa {len(f_beliefs)} phần tử.")
-            
-            self.frontier_steps_data.append(self.get_frontier_draw_cmds(f_beliefs, 50, frontier_y))
-            
-            # Cập nhật tọa độ
-            curr_x = next_x
-            prev_w = b_w
+        BASE_X    = 50
+        curr_y    = 260
+        frontier_y = 520
+        ARROW_W   = 70
+        GAP       = 12
 
-        self.cv_vis.xview_moveto(0.0)
-        
-    def solve_partially_obs(self, start_state):
-        self.log("Partially Observable Search...")
-        self.log("Chế độ: Center 2x2. Agent chỉ thấy 4 ô ở giữa.")
-        self.stats["expanded"] = 5
-        self.stats["generated"] = 15
-        self.stats["belief_size"] = 1
-        
-        x = 500
-        y = 50
-        
-        cmds = []
-        cmds.append(("rectangle", [x-60, y-60, x+60, y+60], {"outline": YELLOW, "width": 2}))
-        cmds.append(("text", [x, y-75], {"text": "Observation Only", "fill": YELLOW}))
-        cmds.extend(self.get_mini_board_obs_cmds(start_state.board, x-40, y-40))
-        
-        self.steps_data.append(cmds)
+        node_pos = []
+        x = BASE_X
+        for i, belief in enumerate(path_nodes):
+            _, b_w, b_h = self.get_belief_state_cmds(belief, x, curr_y, i)
+            node_pos.append((x, b_w, b_h))
+            if i < len(path_nodes) - 1:
+                x = x + b_w + GAP + ARROW_W + GAP
+
+        def get_obs_cmds_for_node(belief, nx, bw):
+            sample_state = next(iter(belief))
+            obs_ox = nx + bw / 2 - 42
+            obs_oy = 60
+            obs_cmds = []
+            obs_cmds.append(("rectangle", [obs_ox - 10, obs_oy - 10, obs_ox + 94, obs_oy + 94], {"outline": YELLOW, "width": 1, "fill": CARD}))
+            obs_cmds.append(("text", [nx + bw / 2, obs_oy - 23], {"text": "Observation", "fill": YELLOW, "font": ("Segoe UI", 9, "bold")}))
+            obs_cmds.extend(self.get_mini_board_obs_cmds(sample_state.board, obs_ox, obs_oy))
+            return obs_cmds
+
+        def arrow_cmds_for(i):
+            if i == 0:
+                return []
+            px, pw, ph = node_pos[i - 1]
+            ax_s = px + pw + GAP
+            ax_e = ax_s + ARROW_W
+            ay   = curr_y + ph // 2
+            return [
+                ("line", [ax_s, ay, ax_e, ay],
+                 {"fill": ACCENT, "width": 2, "arrow": "last"}),
+                ("text", [(ax_s + ax_e) / 2, ay - 14],
+                 {"text": path_actions[i - 1],
+                  "fill": YELLOW, "font": ("Segoe UI", 10, "bold")}),
+            ]
+
+        def cover(nx, bw, bh):
+            return ("rectangle",
+                    [nx - 6, curr_y - 66, nx + bw + 6, curr_y + bh + 6],
+                    {"fill": CARD, "outline": CARD})
+
+        def label_cover(nx, bw):
+            return ("rectangle",
+                    [nx - 6, curr_y - 72, nx + bw + 6, curr_y - 28],
+                    {"fill": CARD, "outline": CARD})
+
+        def step_label(nx, bw, text, color):
+            return ("text", [nx + bw / 2, curr_y - 48],
+                    {"text": text, "fill": color,
+                     "font": ("Segoe UI", 9, "bold")})
+
+        for i, belief in enumerate(path_nodes):
+            h = frontier_history.get(
+                belief, {"before": [], "after_pop": [], "after_expand": []})
+            nx, bw, bh = node_pos[i]
+            is_last = (i == len(path_nodes) - 1)
+            arrows  = arrow_cmds_for(i)
+            k = len(belief)
+
+            # A
+            stepA = list(arrows)
+            if i == 0:
+                stepA.extend(get_obs_cmds_for_node(belief, nx, bw))
+            stepA.append(cover(nx, bw, bh))
+            b_cmds, _, _ = self.get_belief_state_cmds(belief, nx, curr_y, i, outline_color=YELLOW)
+            stepA.extend(b_cmds)
+            stepA.append(("rectangle",
+                           [nx - 4, curr_y - 4, nx + bw + 4, curr_y + bh + 4],
+                           {"outline": YELLOW, "width": 3, "dash": (6, 3)}))
+
+            self.steps_data.append(stepA)
+            self.frontier_steps_data.append(
+                self.get_frontier_draw_cmds(h.get("before", []), 50, frontier_y))
+            self.log(f"Bước {i}A: B{i} (|B|={k}) đứng đầu stack. Stack: {len(h.get('before', []))} node.")
+
+            # B
+            stepB = list(arrows)
+            stepB.append(cover(nx, bw, bh))
+            b_cmds, _, _ = self.get_belief_state_cmds(belief, nx, curr_y, i, outline_color=ACCENT)
+            stepB.extend(b_cmds)
+
+            self.steps_data.append(stepB)
+            self.frontier_steps_data.append(
+                self.get_frontier_draw_cmds(h.get("after_pop", []), 50, frontier_y))
+            self.log(f"")
+
+            # C
+            stepC = list(arrows)
+            stepC.append(cover(nx, bw, bh))
+            done_color = GREEN if is_last else SUB
+            b_cmds, _, _ = self.get_belief_state_cmds(belief, nx, curr_y, i, outline_color=done_color)
+            stepC.extend(b_cmds)
+
+
+            if not is_last:
+                act_name = path_actions[i]
+                next_nx, next_bw, next_bh = node_pos[i + 1]
+                ax_s = nx + bw + GAP
+                ax_e = ax_s + ARROW_W
+                ay   = curr_y + bh // 2
+                stepC.append(("line", [ax_s, ay, ax_e, ay],
+                               {"fill": ACCENT, "width": 2, "arrow": "last"}))
+                stepC.append(("text", [(ax_s + ax_e) / 2, ay - 14],
+                               {"text": act_name,
+                                "fill": YELLOW, "font": ("Segoe UI", 10, "bold")}))
+                stepC.append(cover(next_nx, next_bw, next_bh))
+                prev_cmds, _, _ = self.get_belief_state_cmds(
+                    path_nodes[i + 1], next_nx, curr_y, i + 1,
+                    outline_color="#444466")
+                stepC.extend(prev_cmds)
+
+
+            self.steps_data.append(stepC)
+            self.frontier_steps_data.append(
+                self.get_frontier_draw_cmds(h.get("after_expand", []), 50, frontier_y))
+            self.log(f"Bước {i}C: Mở rộng B{i} xong. Stack: {len(h.get('after_expand', []))} node.")
+
         self.cv_vis.xview_moveto(0.0)
 
     def get_mini_board_cmds(self, board, ox, oy, outline_color=None):
