@@ -3,6 +3,7 @@ from tkinter import messagebox
 from collections import deque
 import copy
 import random
+import time
 
 # ===== THEME =====
 BG = "#1a1a2e"
@@ -22,6 +23,26 @@ YELLOW = "#ffd166"
 
 GOAL = [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 0]]
 DEFAULT = [[1, 2, 3, 4], [5, 6, 0, 8], [9, 10, 7, 11], [13, 14, 15, 12]]
+
+def count_inversions(board):
+    flat = [board[i][j] for i in range(4) for j in range(4)]
+    nums = [x for x in flat if x != 0]
+    inv = 0
+    for i in range(len(nums)):
+        for j in range(i + 1, len(nums)):
+            if nums[i] > nums[j]:
+                inv += 1
+    return inv
+
+def is_solvable(board):
+    """Kiểm tra bảng 4x4 có thể giải được không (nghịch thế + vị trí ô trống)."""
+    inv = count_inversions(board)
+    blank_row_from_bottom = 0
+    for i in range(4):
+        for j in range(4):
+            if board[i][j] == 0:
+                blank_row_from_bottom = 4 - i
+    return (inv + blank_row_from_bottom) % 2 == 1
 
 class SearchNode:
     def __init__(self, board, action=None, tile_val=None, depth=0, parent=None, cost=0):
@@ -86,11 +107,18 @@ def solve_bfs(start_board, max_steps=2000):
         })
         
         if curr.board == GOAL:
+            path = []
+            node = curr
+            while node:
+                path.append(node)
+                node = node.parent
+            path.reverse()
+            path_desc = " → ".join([f"{n.tile_val or 'Start'}{n.action or ''}" for n in path])
             steps.append({
                 'cur': curr,
                 'frontier': list(frontier),
                 'reached': list(reached),
-                'text': f"🎉 ĐÃ TÌM THẤY ĐÍCH! Tổng số node đã duyệt: {nodes_expanded}."
+                'text': f"🎉 ĐÃ TÌM THẤY ĐÍCH!\nTổng node duyệt: {nodes_expanded}\nĐộ dài lời giải: {len(path)-1} bước\nĐường đi: {path_desc}"
             })
             return steps
             
@@ -109,6 +137,13 @@ def solve_bfs(start_board, max_steps=2000):
             'text': f"Sinh các node con: {nl}.\nThêm những node chưa duyệt (không nằm trong Reached) vào cuối hàng đợi Frontier."
         })
         
+    steps.append({
+        'cur': None,
+        'frontier': list(frontier),
+        'reached': list(reached),
+        'text': f"⚠ Đã duyệt {nodes_expanded} node, chưa tìm thấy đích.\n" +
+                ("Frontier rỗng — không còn node để mở rộng." if not frontier else f"Đạt giới hạn {max_steps} bước.")
+    })
     return steps
 
 def solve_dfs(start_board, max_steps=2000):
@@ -142,11 +177,18 @@ def solve_dfs(start_board, max_steps=2000):
         })
         
         if curr.board == GOAL:
+            path = []
+            node = curr
+            while node:
+                path.append(node)
+                node = node.parent
+            path.reverse()
+            path_desc = " → ".join([f"{n.tile_val or 'Start'}{n.action or ''}" for n in path])
             steps.append({
                 'cur': curr,
                 'frontier': list(frontier),
                 'reached': list(reached),
-                'text': f"🎉 ĐÃ TÌM THẤY ĐÍCH! Tổng số node đã duyệt: {nodes_expanded}."
+                'text': f"🎉 ĐÃ TÌM THẤY ĐÍCH!\nTổng node duyệt: {nodes_expanded}\nĐộ dài lời giải: {len(path)-1} bước\nĐường đi: {path_desc}"
             })
             return steps
             
@@ -165,6 +207,13 @@ def solve_dfs(start_board, max_steps=2000):
             'text': f"Sinh các node con: {nl}.\nThêm những node chưa duyệt vào đỉnh stack Frontier."
         })
         
+    steps.append({
+        'cur': None,
+        'frontier': list(frontier),
+        'reached': list(reached),
+        'text': f"⚠ Đã duyệt {nodes_expanded} node, chưa tìm thấy đích.\n" +
+                ("Frontier rỗng — không còn node để mở rộng." if not frontier else f"Đạt giới hạn {max_steps} bước.")
+    })
     return steps
 
 def solve_ucs(start_board, max_steps=2000):
@@ -203,11 +252,18 @@ def solve_ucs(start_board, max_steps=2000):
         })
         
         if curr.board == GOAL:
+            path = []
+            node = curr
+            while node:
+                path.append(node)
+                node = node.parent
+            path.reverse()
+            path_desc = " → ".join([f"{n.tile_val or 'Start'}{n.action or ''}" for n in path])
             steps.append({
                 'cur': curr,
                 'frontier': list(frontier),
                 'reached': list(reached),
-                'text': f"🎉 ĐÃ TÌM THẤY ĐÍCH! Tổng số node đã duyệt: {nodes_expanded}."
+                'text': f"🎉 ĐÃ TÌM THẤY ĐÍCH!\nTổng node duyệt: {nodes_expanded}\nĐộ dài lời giải: {len(path)-1} bước\nĐường đi: {path_desc}"
             })
             return steps
             
@@ -226,6 +282,13 @@ def solve_ucs(start_board, max_steps=2000):
             'text': f"Sinh các node con: {nl}.\nThêm những node chưa duyệt vào Frontier."
         })
         
+    steps.append({
+        'cur': None,
+        'frontier': list(frontier),
+        'reached': list(reached),
+        'text': f"⚠ Đã duyệt {nodes_expanded} node, chưa tìm thấy đích.\n" +
+                ("Frontier rỗng — không còn node để mở rộng." if not frontier else f"Đạt giới hạn {max_steps} bước.")
+    })
     return steps
 
 def draw_board(canvas, board, cs, x0, y0, border_color=None):
@@ -480,11 +543,13 @@ class PuzzleUI:
         return frame
         
     def draw_initial(self):
+        self.elapsed = 0
         self.cv_cur.delete("all")
         draw_board(self.cv_cur, self.board, 58, 10, 10, border_color=ACCENT)
         self.lbl_info.config(text="g = 0\ndepth = 0\naction = Bắt đầu")
         
         for w in self.fr_inner.winfo_children(): w.destroy()
+        tk.Label(self.fr_inner, text="Hộp rỗng", font=("Segoe UI", 11), bg=CARD, fg=SUB).pack(expand=True, pady=40)
         
         
         for w in self.re_inner.winfo_children(): w.destroy()
@@ -497,7 +562,8 @@ class PuzzleUI:
         if idx < 0 or idx >= len(self.steps): return
         self.step_idx = idx
         st = self.steps[idx]
-        self.lbl_step.config(text=f"Bước {idx+1}/{len(self.steps)}")
+        time_str = f" | ⏱ {self.elapsed:.2f}s" if self.elapsed else ""
+        self.lbl_step.config(text=f"Bước {idx+1}/{len(self.steps)}{time_str}")
         
         self.cv_cur.delete("all")
         cur_node = st['cur']
@@ -600,12 +666,22 @@ class PuzzleUI:
             messagebox.showwarning("Chưa chọn", "Vui lòng chọn thuật toán!", parent=self.win)
             return
             
+        if not is_solvable(self.board):
+            messagebox.showwarning("Không giải được",
+                "Trạng thái này không thể đạt tới đích!\n(Số nghịch thế + vị trí ô trống không hợp lệ)",
+                parent=self.win)
+            return
+        
+        t0 = time.time()
+        
         if self.algo == "Breadth-First Search (BFS)":
             self.steps = solve_bfs(self.board)
         elif self.algo == "Depth-First Search (DFS)":
             self.steps = solve_dfs(self.board)
         else:
             self.steps = solve_ucs(self.board)
+        
+        self.elapsed = time.time() - t0
             
         if self.steps:
             self.show_step(0)

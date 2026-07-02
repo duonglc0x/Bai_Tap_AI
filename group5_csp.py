@@ -909,3 +909,14 @@ class CSPUI:
 
 def open_ui(parent, algo_name):
     CSPUI(parent, algo_name)
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    root.title("Nhóm 5 CSP Standalone")
+    root.withdraw()
+    def custom_close(ui):
+        ui.win.destroy()
+        root.destroy()
+    ui = CSPUI(root, "Backtracking")
+    ui.on_close = lambda: custom_close(ui)
+    root.mainloop()
